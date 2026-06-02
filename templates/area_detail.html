@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+{% block title %}{{ area.title }} | PGSI{% endblock %}
+{% block heading %}{{ area.title }}{% endblock %}
+
+{% set tab_labels = {
+    "visao": "Visão geral",
+    "alimentacao": "Alimentação",
+    "inventario": "Inventário",
+    "controles": "Controles",
+    "riscos": "Riscos",
+    "acoes": "Plano de ação",
+    "evidencias": "Evidências",
+    "indicadores": "Indicadores",
+    "historico": "Histórico"
+} %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+<section class="area-detail-hero area-{{ area.number }}">
+    <div class="area-number large">{{ area.number }}</div>
+    <div>
+        <p class="eyebrow">Ambiente do eixo PGSI</p>
+        <h2>{{ area.title }}</h2>
+        <p>{{ area.explanation }}</p>
+    </div>
+    <div class="area-actions">
+        <a class="button ghost" href="{{ url_for('control_center') }}#areas-pgsi">Voltar ao mapa</a>
+        {% if has_permission('controles', 'create') %}
+            <a class="button primary" href="{{ url_for('entity_create', entity='controles', categoria=area.title, tipo=area.control_type, area_responsavel=area.responsible_area, observacoes='Área PGSI: ' ~ area.title) }}">Novo controle</a>
+        {% endif %}
+    </div>
+</section>
+
+<nav class="area-workspace-tabs">
+    {% for key in area_tabs %}
+        <a class="{% if active_tab == key %}active{% endif %}" href="{{ url_for('security_area_detail', key=area.key, tab=key) }}">{{ tab_labels[key] }}</a>
+    {% endfor %}
+</nav>
+
+{% if active_tab == "visao" %}
+<section class="metric-grid compact">
+    <article class="metric {{ data.status.tone }}"><span>Status geral</span><strong>{{ data.status.label }}</strong><small>{{ data.metrics.attention }} ponto(s) de atenção</small></article>
+    <article class="metric neutral"><span>Responsável principal</span><strong class="metric-text">{{ data.responsible }}</strong><small>Mais recorrente no eixo</small></article>
+    <article class="metric success"><span>Controles implementados</span><strong>{{ data.metrics.implemented_pct }}%</strong><small>{{ data.metrics.implemented_controls }} de {{ data.metrics.controls }}</small></article>
+    <article class="metric warning"><span>Última atualização</span><strong class="metric-text">{{ format_date(data.last_update) or "Sem data" }}</strong><small>Cadastros e evidências</small></article>
+    {% if area.key == "ativos" %}
+        <article class="metric neutral"><span>Itens no inventário</span><strong>{{ data.inventory_metrics.total }}</strong><small>{{ data.inventory_metrics.critical }} críticos ou altos</small></article>
+        <article class="metric warning"><span>Sem responsável</span><strong>{{ data.inventory_metrics.without_owner }}</strong><small>{{ data.inventory_metrics.review_due }} revisão(ões) vencida(s)</small></article>
+    {% endif %}
+</section>
+
+<section class="split-grid wide-left">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Como usar este ambiente</h2>
+        </div>
+        <div class="workflow-list">
+            {% for step in data.playbook.workflow %}
+                <div><span>{{ loop.index }}</span>{{ step }}</div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Pontos de atenção</h2>
+        </div>
+        <div class="stack-list">
+            {% for point in data.attention_points %}
+                <div class="attention {{ point.level }}">
+                    <strong>{{ point.title }}</strong>
+                    <span>{{ point.text }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header"><h2>O que pertence a este eixo</h2></div>
+        <div class="objective-list">
+            {% for objective in area.objectives %}
+                <div>{{ objective }}</div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-header"><h2>Perguntas de triagem</h2></div>
+        <div class="question-list">
+            {% for question in data.playbook.questions %}
+                <div>{{ question }}</div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "alimentacao" %}
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Alimentação orientada</h2>
+            <span>Use estes blocos para saber exatamente que informação registrar neste eixo.</span>
+        </div>
+    </div>
+    <div class="intake-grid">
+        {% for item in data.playbook.records %}
+            <div class="intake-card">
+                <strong>{{ item }}</strong>
+                <span>Cadastre como controle, risco, ação ou evidência conforme a natureza da informação.</span>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="quick-grid">
+    <a class="quick-card" href="{{ url_for('entity_create', entity='controles', categoria=area.title, tipo=area.control_type, area_responsavel=area.responsible_area, observacoes='Área PGSI: ' ~ area.title) }}">
+        <strong>Cadastrar controle deste eixo</strong>
+        <span>O controle já será classificado como {{ area.title }}.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('entity_create', entity='riscos', categoria=area.title, observacoes='Área PGSI: ' ~ area.title) }}">
+        <strong>Cadastrar risco deste eixo</strong>
+        <span>Probabilidade x impacto calcula automaticamente o nível do risco.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('entity_create', entity='acoes', origem=area.title) }}">
+        <strong>Criar plano de ação</strong>
+        <span>Use para tratar riscos altos, controles vencidos ou evidências pendentes.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('security_area_detail', key=area.key, tab='evidencias') }}">
+        <strong>Anexar evidência</strong>
+        <span>Envie arquivos e vincule a controle, risco ou ação deste eixo.</span>
+    </a>
+    {% if area.key == "ativos" %}
+        <a class="quick-card" href="{{ url_for('security_area_detail', key=area.key, tab='inventario') }}">
+            <strong>Cadastrar item do inventário</strong>
+            <span>Registre equipamentos, sistemas, serviços e dados com responsável, criticidade e ciclo de vida.</span>
+        </a>
+    {% endif %}
+</section>
+{% endif %}
+
+{% if active_tab == "inventario" and area.key == "ativos" %}
+<section class="metric-grid compact">
+    <article class="metric neutral"><span>Total de itens</span><strong>{{ data.inventory_metrics.total }}</strong><small>Itens ativos no inventário</small></article>
+    <article class="metric danger"><span>Críticos ou altos</span><strong>{{ data.inventory_metrics.critical }}</strong><small>Prioridade de proteção</small></article>
+    <article class="metric warning"><span>Sem responsável</span><strong>{{ data.inventory_metrics.without_owner }}</strong><small>Precisam de dono definido</small></article>
+    <article class="metric warning"><span>Revisão vencida</span><strong>{{ data.inventory_metrics.review_due }}</strong><small>Ciclo de vida pendente</small></article>
+    <article class="metric neutral"><span>Em manutenção</span><strong>{{ data.inventory_metrics.maintenance }}</strong><small>Acompanhar retorno</small></article>
+</section>
+
+<section class="split-grid wide-left inventory-layout">
+    {% if has_permission('controles', 'create') %}
+        <form method="post" action="{{ url_for('asset_inventory_create') }}" class="panel form-panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Adicionar item ao inventário</h2>
+                    <span>Cadastre cada ativo com identificação, responsável, criticidade, localização e datas de acompanhamento.</span>
+                </div>
+            </div>
+            <div class="form-grid">
+                <label><span>Nome do item<em>*</em></span><input type="text" name="nome" required placeholder="Ex.: Servidor de arquivos"></label>
+                <label><span>Identificador / patrimônio</span><input type="text" name="identificador" placeholder="Ex.: PAT-1023, TAG-VM-01"></label>
+                <label><span>Tipo</span><select name="tipo"><option value="">Selecione</option>{% for option in data.asset_options.types %}<option>{{ option }}</option>{% endfor %}</select></label>
+                <label><span>Responsável</span><select name="responsavel_id"><option value="">Sem responsável definido</option>{% for value, label in data.people %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+                <label><span>Criticidade</span><select name="criticidade">{% for option in data.asset_options.criticalities %}<option {% if option == "Média" %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+                <label><span>Status</span><select name="status">{% for option in data.asset_options.statuses %}<option {% if option == "Ativo" %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+                <label><span>Localização</span><input type="text" name="localizacao" placeholder="Ex.: Sala técnica, nuvem, unidade remota"></label>
+                <label><span>Unidade / área</span><input type="text" name="unidade" placeholder="Ex.: DTI, Financeiro, Campus 1"></label>
+                <label><span>Data de aquisição</span><input type="date" name="data_aquisicao"></label>
+                <label><span>Próxima revisão</span><input type="date" name="data_revisao"></label>
+                <label class="span-2"><span>Observações</span><textarea name="observacoes" rows="3" placeholder="Inclua dependências, vínculos, regras de uso, substituição prevista ou observações de segurança."></textarea></label>
+            </div>
+            <div class="form-actions"><button class="button primary" type="submit">Adicionar ao inventário</button></div>
+        </form>
+    {% else %}
+        <div class="panel">
+            <div class="panel-header"><h2>Inventário de ativos</h2></div>
+            <p class="muted">Seu perfil pode visualizar os itens cadastrados, mas não possui permissão para adicionar novos registros.</p>
+        </div>
+    {% endif %}
+    <div class="panel">
+        <div class="panel-header"><h2>Como preencher</h2></div>
+        <div class="objective-list inventory-guidance">
+            <div>Use um item por equipamento, sistema, serviço, base de dados ou conjunto de informação relevante.</div>
+            <div>Defina um responsável claro para cada ativo, mesmo que seja uma área ou pessoa de referência.</div>
+            <div>Use criticidade alta ou crítica quando o ativo sustenta processo essencial, dados sensíveis ou acesso privilegiado.</div>
+            <div>Informe a próxima revisão para manter o inventário vivo e auditável.</div>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Lista de itens do inventário</h2>
+            <span>Esta lista representa os ativos que devem ser protegidos, revisados e relacionados aos controles do PGSI.</span>
+        </div>
+    </div>
+    <div class="table-wrap embedded">
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Tipo / ID</th>
+                    <th>Responsável</th>
+                    <th>Criticidade</th>
+                    <th>Status</th>
+                    <th>Localização</th>
+                    <th>Revisão</th>
+                    <th class="actions-col">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in data.inventory %}
+                    <tr>
+                        <td><strong>{{ item.nome }}</strong><small>{{ item.observacoes or "Sem observações" }}</small></td>
+                        <td>{{ item.tipo or "Não informado" }}<small>{{ item.identificador or "Sem identificador" }}</small></td>
+                        <td>{{ item.responsavel_nome or "Sem responsável" }}</td>
+                        <td><span class="badge {{ item.criticidade|status_class }}">{{ item.criticidade or "Não definida" }}</span></td>
+                        <td><span class="badge {{ item.status|status_class }}">{{ item.status }}</span></td>
+                        <td>{{ item.localizacao or "Não informada" }}<small>{{ item.unidade or "" }}</small></td>
+                        <td>{{ format_date(item.data_revisao) or "Sem data" }}<small>Aquisição: {{ format_date(item.data_aquisicao) or "Não informada" }}</small></td>
+                        <td class="actions-col">
+                            {% if has_permission('controles', 'delete') %}
+                                <form method="post" action="{{ url_for('asset_inventory_delete', item_id=item.id) }}">
+                                    <button class="button small danger" type="submit">Inativar</button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8" class="empty">Nenhum item cadastrado no inventário de ativos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "controles" %}
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Controles deste eixo</h2>
+            <span>Todo controle criado aqui fica contextualizado em {{ area.title }}.</span>
+        </div>
+        <a class="button primary" href="{{ url_for('entity_create', entity='controles', categoria=area.title, tipo=area.control_type, area_responsavel=area.responsible_area, observacoes='Área PGSI: ' ~ area.title) }}">Novo controle</a>
+    </div>
+    <div class="table-wrap embedded">
+        <table>
+            <thead><tr><th>Controle</th><th>Status</th><th>Responsável</th><th>Revisão</th><th>Prazo</th><th>Evidências</th></tr></thead>
+            <tbody>
+                {% for control in data.controls %}
+                    <tr>
+                        <td><strong>{{ control.titulo }}</strong><small>{{ control.descricao }}</small></td>
+                        <td><span class="badge {{ control.status|status_class }}">{{ control.status }}</span></td>
+                        <td>{{ control.responsavel_nome or "Sem responsável" }}</td>
+                        <td>{{ format_date(control.data_revisao) }}</td>
+                        <td>{{ format_date(control.prazo) }}</td>
+                        <td>{{ control.evidencias }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="empty">Nenhum controle cadastrado para este eixo.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "riscos" %}
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Riscos deste eixo</h2>
+            <span>Riscos altos sem plano de tratamento aparecem automaticamente como ponto de atenção.</span>
+        </div>
+        <a class="button primary" href="{{ url_for('entity_create', entity='riscos', categoria=area.title, observacoes='Área PGSI: ' ~ area.title) }}">Novo risco</a>
+    </div>
+    <div class="stack-list">
+        {% for risk in data.risks %}
+            <div class="list-card">
+                <strong>{{ risk.titulo }}</strong>
+                <span>{{ risk.controle_titulo or "Sem controle vinculado" }}</span>
+                <small><span class="badge {{ risk.nivel_risco|status_class }}">{{ risk.nivel_risco }}</span> Prob. {{ risk.probabilidade }} x Impacto {{ risk.impacto }} · {{ risk.status }} · {{ format_date(risk.prazo) }}</small>
+                {% if risk.nivel_risco == "Alto" and not risk.plano_tratamento %}
+                    <a class="button small danger" href="{{ url_for('entity_create', entity='acoes', origem=area.title, risco_id=risk.id, prioridade='Alta', titulo='Tratar risco: ' ~ risk.titulo) }}">Criar ação de tratamento</a>
+                {% endif %}
+            </div>
+        {% else %}
+            <p class="empty">Nenhum risco cadastrado para este eixo.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "acoes" %}
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Plano de ação deste eixo</h2>
+            <span>Ações vencidas e abertas alimentam o status geral do eixo.</span>
+        </div>
+        <a class="button primary" href="{{ url_for('entity_create', entity='acoes', origem=area.title) }}">Nova ação</a>
+    </div>
+    <div class="stack-list">
+        {% for action in data.actions %}
+            <div class="list-card">
+                <strong>{{ action.titulo }}</strong>
+                <span>{{ action.descricao or action.responsavel_nome or "Sem descrição" }}</span>
+                <small><span class="badge {{ action.prioridade|status_class }}">{{ action.prioridade }}</span> {{ action.status }} · prazo {{ format_date(action.prazo) }}</small>
+            </div>
+        {% else %}
+            <p class="empty">Nenhuma ação cadastrada para este eixo.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "evidencias" %}
+<section class="split-grid wide-left">
+    <form method="post" action="{{ url_for('documents') }}" enctype="multipart/form-data" class="panel form-panel">
+        <div class="panel-header">
+            <div>
+                <h2>Enviar evidência para {{ area.title }}</h2>
+                <span>Vincule o arquivo a um controle, risco ou ação do eixo.</span>
+            </div>
+        </div>
+        <input type="hidden" name="eixo" value="{{ area.title }}">
+        <input type="hidden" name="next" value="{{ url_for('security_area_detail', key=area.key, tab='evidencias') }}">
+        <div class="form-grid">
+            <label class="span-2"><span>Arquivo</span><input type="file" name="arquivo" required></label>
+            <label class="span-2"><span>Descrição da evidência</span><textarea name="descricao" rows="3" placeholder="Informe o que este arquivo comprova neste eixo."></textarea></label>
+            <label><span>Classificação</span><select name="classificacao" required><option>Interna</option><option>Pública</option><option>Restrita</option><option>Confidencial</option><option>Sensível</option></select></label>
+            <label><span>Controle</span><select name="controle_id"><option value="">Não vincular</option>{% for value, label in data.choices.controles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+            <label><span>Risco</span><select name="risco_id"><option value="">Não vincular</option>{% for value, label in data.choices.riscos %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+            <label><span>Plano de ação</span><select name="acao_id"><option value="">Não vincular</option>{% for value, label in data.choices.acoes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="form-actions"><button class="button primary" type="submit">Enviar evidência</button></div>
+    </form>
+    <div class="panel">
+        <div class="panel-header"><h2>Exemplos aceitos neste eixo</h2></div>
+        <div class="objective-list">
+            {% for item in data.playbook.evidence %}
+                <div>{{ item }}</div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header"><h2>Evidências cadastradas</h2></div>
+    <div class="stack-list">
+        {% for file in data.evidences %}
+            <a class="list-card" href="{{ url_for('file_detail', file_id=file.id) }}">
+                <strong>{{ file.nome_original }}</strong>
+                <span>{{ file.descricao or file.controle_titulo or file.risco_titulo or file.acao_titulo or "Evidência vinculada ao eixo" }}</span>
+                <small>{{ file.classificacao }} · {{ format_date(file.criado_em) }}</small>
+            </a>
+        {% else %}
+            <p class="empty">Nenhuma evidência cadastrada para este eixo.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "indicadores" %}
+<section class="metric-grid compact">
+    <article class="metric neutral"><span>Total de controles</span><strong>{{ data.metrics.controls }}</strong><small>Base de abrangência</small></article>
+    <article class="metric success"><span>Controles implementados</span><strong>{{ data.metrics.implemented_pct }}%</strong><small>Implementados / total</small></article>
+    <article class="metric danger"><span>Riscos altos</span><strong>{{ data.metrics.high_risks }}</strong><small>Prioridade gerencial</small></article>
+    <article class="metric warning"><span>Ações abertas</span><strong>{{ data.metrics.open_actions }}</strong><small>Não concluídas</small></article>
+    <article class="metric danger"><span>Ações vencidas</span><strong>{{ data.metrics.overdue_actions }}</strong><small>Prazo expirado</small></article>
+    <article class="metric success"><span>Ações concluídas</span><strong>{{ data.metrics.completed_actions_pct }}%</strong><small>Concluídas / total</small></article>
+    {% if area.key == "ativos" %}
+        <article class="metric neutral"><span>Itens inventariados</span><strong>{{ data.inventory_metrics.total }}</strong><small>Base de ativos protegidos</small></article>
+        <article class="metric warning"><span>Ativos sem dono</span><strong>{{ data.inventory_metrics.without_owner }}</strong><small>Responsável obrigatório</small></article>
+    {% endif %}
+</section>
+<section class="panel">
+    <div class="panel-header"><h2>Fórmulas usadas</h2></div>
+    <div class="formula-grid">
+        <div><strong>Status geral</strong><span>Combina controles vencidos, riscos altos sem plano, ações vencidas e ausência de evidências.</span></div>
+        <div><strong>Percentual de controles implementados</strong><span>Controles implementados ou concluídos / total de controles x 100.</span></div>
+        <div><strong>Percentual de ações concluídas</strong><span>Ações concluídas / total de ações x 100.</span></div>
+        <div><strong>Pontos de atenção</strong><span>Controles vencidos + riscos altos sem plano + ações vencidas + controles sem evidência.</span></div>
+    </div>
+</section>
+{% endif %}
+
+{% if active_tab == "historico" %}
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Histórico do eixo</h2>
+            <span>Eventos registrados em controles, riscos, ações e evidências deste eixo.</span>
+        </div>
+    </div>
+    <div class="table-wrap embedded">
+        <table>
+            <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th><th>Tabela</th><th>Registro</th><th>Detalhes</th></tr></thead>
+            <tbody>
+                {% for log in data.history %}
+                    <tr>
+                        <td>{{ format_date(log.data_hora) }}</td>
+                        <td>{{ log.usuario_nome or "Sistema" }}</td>
+                        <td>{{ log.acao }}</td>
+                        <td>{{ log.tabela_afetada }}</td>
+                        <td>{{ log.registro_id }}</td>
+                        <td>{{ log.detalhes or "" }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="empty">Nenhuma movimentação registrada para este eixo.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

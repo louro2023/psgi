@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Backup | PGSI{% endblock %}
+{% block heading %}Backup{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+    <div>
+        <p class="muted">Cópias locais do banco SQLite para apoio operacional.</p>
+    </div>
+    {% if has_permission('backup', 'create') %}
+        <form method="post">
+            <button class="button primary" type="submit">Criar backup</button>
+        </form>
+    {% endif %}
+</section>
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Arquivo</th>
+                <th>Tamanho</th>
+                <th>Data</th>
+                <th class="actions-col">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in files %}
+                <tr>
+                    <td>{{ file.name }}</td>
+                    <td>{{ (file.size / 1024)|round(1) }} KB</td>
+                    <td>{{ file.modified }}</td>
+                    <td class="row-actions">
+                        <a class="button small ghost" href="{{ url_for('backup_download', name=file.name) }}">Baixar</a>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" class="empty">Nenhum backup criado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

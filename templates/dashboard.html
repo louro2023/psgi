@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | PGSI{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+    <form method="get" class="filters">
+        <label>
+            <span>Início</span>
+            <input type="date" name="inicio" value="{{ filters.inicio }}">
+        </label>
+        <label>
+            <span>Fim</span>
+            <input type="date" name="fim" value="{{ filters.fim }}">
+        </label>
+        <label>
+            <span>Setor</span>
+            <input type="text" name="setor" value="{{ filters.setor }}" placeholder="Área responsável">
+        </label>
+        <label>
+            <span>Responsável</span>
+            <select name="responsavel_id">
+                <option value="">Todos</option>
+                {% for value, label in people %}
+                    <option value="{{ value }}" {% if filters.responsavel_id == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Categoria</span>
+            <input type="text" name="categoria" value="{{ filters.categoria }}">
+        </label>
+        <button class="button primary" type="submit">Filtrar</button>
+        <a class="button ghost" href="{{ url_for('dashboard') }}">Limpar</a>
+    </form>
+</section>
+
+<section class="metric-grid">
+    {% for card in data.cards %}
+        <article class="metric {{ card.tone }}">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            {% if card.hint %}<small>{{ card.hint }}</small>{% endif %}
+        </article>
+    {% endfor %}
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Status dos controles</h2>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="status"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Nível dos riscos</h2>
+        </div>
+        <canvas class="chart-canvas" data-chart="pie" data-source="risks"></canvas>
+    </div>
+</section>
+
+<section class="split-grid wide-left">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Incidentes por mês</h2>
+        </div>
+        <canvas class="chart-canvas" data-chart="line" data-source="incidents"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Pontos de atenção</h2>
+        </div>
+        <div class="stack-list">
+            {% for item in data.alerts %}
+                <div class="attention {{ item.level }}">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.text }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Melhorias sugeridas</h2>
+        </div>
+        <div class="stack-list">
+            {% for item in data.improvements %}
+                <div class="recommendation">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.text }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Histórico recente</h2>
+        </div>
+        <div class="timeline">
+            {% for log in data.recent_logs %}
+                <div>
+                    <strong>{{ log.acao }}</strong>
+                    <span>{{ log.usuario_nome or "Sistema" }} · {{ format_date(log.data_hora) }}</span>
+                    <small>{{ log.detalhes }}</small>
+                </div>
+            {% else %}
+                <p class="empty">Nenhum log registrado.</p>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<script id="chart-data" type="application/json">{{ data.charts|tojson }}</script>
+{% endblock %}

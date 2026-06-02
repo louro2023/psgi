@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Controles | PGSI{% endblock %}
+{% block heading %}Controles{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+<section class="control-intro">
+    <div>
+        <p class="eyebrow">Visão integrada</p>
+        <h2>Gestão de controles orientada pelas 16 áreas do PGSI</h2>
+        <p>Cada área organiza controles, riscos, ações e evidências em um mesmo contexto. Use o mapa para entender o domínio, abrir detalhes e cadastrar novos itens já com a área preenchida.</p>
+    </div>
+    <div class="control-intro-actions">
+        {% if has_permission('controles', 'create') %}
+            <a class="button primary" href="{{ url_for('entity_create', entity='controles') }}">Novo controle</a>
+        {% endif %}
+        {% if has_permission('arquivos', 'create') %}
+            <a class="button ghost" href="{{ url_for('documents') }}">Enviar evidência</a>
+        {% endif %}
+    </div>
+</section>
+
+<section class="metric-grid compact">
+    {% for card in data.cards %}
+        <article class="metric {{ card.tone }}">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.hint }}</small>
+        </article>
+    {% endfor %}
+</section>
+
+<section class="panel area-map" id="areas-pgsi">
+    <div class="panel-header area-map-header">
+        <div>
+            <h2>Mapa PGSI</h2>
+            <span>As áreas abaixo são o eixo conceitual do sistema; os cadastros continuam nas abas de controles, riscos, plano de ação e evidências.</span>
+        </div>
+        <a class="button small ghost" href="{{ url_for('reports', tipo='melhorias') }}">Ver melhorias</a>
+    </div>
+    <div class="area-strip">
+        {% for area in data.areas %}
+            <a class="area-pill area-{{ area.number }}" href="{{ url_for('security_area_detail', key=area.key) }}">
+                <span class="area-number">{{ area.number }}</span>
+                <strong>{{ area.title }}</strong>
+                <em>{{ area.summary }}</em>
+                <small>
+                    <span class="badge {{ area.metrics.tone }}">{{ area.metrics.status }}</span>
+                    {% if area.key == "ativos" %}
+                        {{ area.metrics.inventory_total }} itens · {{ area.metrics.controls }} controles · {{ area.metrics.risks }} riscos
+                    {% else %}
+                        {{ area.metrics.controls }} controles · {{ area.metrics.risks }} riscos · {{ area.metrics.evidences }} evidências
+                    {% endif %}
+                </small>
+            </a>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="quick-grid">
+    <a class="quick-card" href="{{ url_for('entity_list', entity='controles') }}">
+        <strong>Controles</strong>
+        <span>Cadastre e acompanhe o que precisa ser implementado, revisado e evidenciado.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('entity_list', entity='riscos') }}">
+        <strong>Riscos</strong>
+        <span>Classifique por probabilidade e impacto, defina tratamento e monitore prazos.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('entity_list', entity='acoes') }}">
+        <strong>Plano de ação</strong>
+        <span>Transforme pendências e riscos em atividades com responsável, prioridade e vencimento.</span>
+    </a>
+    <a class="quick-card" href="{{ url_for('documents') }}">
+        <strong>Evidências</strong>
+        <span>Anexe documentos, extraia texto e conecte arquivos aos registros corretos.</span>
+    </a>
+</section>
+
+<section class="split-grid wide-left">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Controles atualizados recentemente</h2>
+            <a class="button small ghost" href="{{ url_for('entity_list', entity='controles') }}">Ver todos</a>
+        </div>
+        <div class="table-wrap embedded">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Controle</th>
+                        <th>Categoria</th>
+                        <th>Responsável</th>
+                        <th>Status</th>
+                        <th>Prazo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data.recent_controls %}
+                        <tr>
+                            <td>{{ item.titulo }}</td>
+                            <td>{{ item.categoria }}</td>
+                            <td>{{ item.responsavel_nome or "" }}</td>
+                            <td><span class="badge {{ item.status|status_class }}">{{ item.status }}</span></td>
+                            <td>{{ format_date(item.prazo) }}</td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="empty">Nenhum controle cadastrado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Pontos de atenção</h2>
+        </div>
+        <div class="stack-list">
+            {% for item in data.alerts %}
+                <div class="attention {{ item.level }}">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.text }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Riscos prioritários</h2>
+            <a class="button small ghost" href="{{ url_for('entity_list', entity='riscos') }}">Ver riscos</a>
+        </div>
+        <div class="stack-list">
+            {% for risk in data.critical_risks %}
+                <div class="list-card">
+                    <strong>{{ risk.titulo }}</strong>
+                    <span>{{ risk.controle_titulo or "Sem controle vinculado" }}</span>
+                    <small><span class="badge {{ risk.nivel_risco|status_class }}">{{ risk.nivel_risco }}</span> Pontuação {{ risk.pontuacao }} · {{ format_date(risk.prazo) }}</small>
+                </div>
+            {% else %}
+                <p class="empty">Nenhum risco cadastrado.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Próximas ações</h2>
+            <a class="button small ghost" href="{{ url_for('entity_list', entity='acoes') }}">Ver ações</a>
+        </div>
+        <div class="stack-list">
+            {% for action in data.next_actions %}
+                <div class="list-card">
+                    <strong>{{ action.titulo }}</strong>
+                    <span>{{ action.responsavel_nome or "Sem responsável" }}</span>
+                    <small><span class="badge {{ action.prioridade|status_class }}">{{ action.prioridade }}</span> {{ action.status }} · {{ format_date(action.prazo) }}</small>
+                </div>
+            {% else %}
+                <p class="empty">Nenhuma ação pendente.</p>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Evidências recentes</h2>
+            <a class="button small ghost" href="{{ url_for('documents') }}">Ver evidências</a>
+        </div>
+        <div class="stack-list">
+            {% for file in data.evidence_rows %}
+                <a class="list-card" href="{{ url_for('file_detail', file_id=file.id) }}">
+                    <strong>{{ file.nome_original }}</strong>
+                    <span>{{ file.controle_titulo or file.risco_titulo or file.acao_titulo or "Sem vínculo" }}</span>
+                    <small>{{ file.classificacao }} · {{ format_date(file.criado_em) }}</small>
+                </a>
+            {% else %}
+                <p class="empty">Nenhuma evidência vinculada.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Melhorias sugeridas</h2>
+            <a class="button small ghost" href="{{ url_for('reports', tipo='melhorias') }}">Ver relatório</a>
+        </div>
+        <div class="stack-list">
+            {% for item in data.improvements %}
+                <div class="recommendation">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.text }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}

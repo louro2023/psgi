@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar" if item else "Cadastrar" }} {{ config.title }} | PGSI{% endblock %}
+{% block heading %}{{ "Editar" if item else "Cadastrar" }} {{ config.title }}{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+{% if errors %}
+    <div class="flash error">
+        {% for error in errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" class="panel form-panel">
+    <div class="form-grid">
+        {% for field in config.fields %}
+            {% set value = values.get(field.name, '') %}
+            <label class="{% if field.span == 2 or field.type in ['textarea', 'permissions'] %}span-2{% endif %}">
+                <span>{{ field.label }}{% if field.required %}<em>*</em>{% endif %}</span>
+
+                {% if field.type == 'textarea' %}
+                    <textarea name="{{ field.name }}" rows="4" {% if field.required %}required{% endif %}>{{ value or "" }}</textarea>
+                {% elif field.type == 'select' %}
+                    <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                        <option value="">Selecione</option>
+                        {% for option in field.options %}
+                            {% if option is string %}
+                                <option value="{{ option }}" {% if value == option %}selected{% endif %}>{{ option }}</option>
+                            {% else %}
+                                <option value="{{ option[0] }}" {% if value|string == option[0]|string %}selected{% endif %}>{{ option[1] }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                {% elif field.type == 'choice' %}
+                    <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                        <option value="">Selecione</option>
+                        {% for option_value, option_label in choices[field.name] %}
+                            <option value="{{ option_value }}" {% if value|string == option_value|string %}selected{% endif %}>{{ option_label }}</option>
+                        {% endfor %}
+                    </select>
+                {% elif field.type == 'permissions' %}
+                    <div class="permission-grid">
+                        {% for module, actions in permission_matrix.items() %}
+                            <div class="permission-row">
+                                <strong>{{ module_labels[module] }}</strong>
+                                <div>
+                                    {% for action in actions %}
+                                        <label class="checkline">
+                                            <input type="checkbox" name="perm__{{ module }}__{{ action }}" {% if action in permission_values.get(module, []) %}checked{% endif %}>
+                                            <span>{{ action_labels[action] }}</span>
+                                        </label>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <input
+                        type="{{ field.type }}"
+                        name="{{ field.name }}"
+                        value="{{ value or '' }}"
+                        {% if field.required %}required{% endif %}
+                        {% if field.type == 'password' %}autocomplete="new-password"{% endif %}
+                    >
+                {% endif %}
+            </label>
+        {% endfor %}
+    </div>
+    <div class="form-actions">
+        <a class="button ghost" href="{{ url_for('entity_list', entity=entity) }}">Cancelar</a>
+        <button class="button primary" type="submit">Salvar</button>
+    </div>
+</form>
+{% endblock %}

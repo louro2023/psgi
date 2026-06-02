@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Documento | PGSI{% endblock %}
+{% block heading %}Documento{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+<section class="panel detail-grid">
+    <div>
+        <p class="eyebrow">Nome original</p>
+        <h2>{{ file.nome_original }}</h2>
+        <p class="muted">{{ file.tipo or "Tipo não informado" }} · {{ (file.tamanho / 1024)|round(1) }} KB</p>
+    </div>
+    <div class="detail-actions">
+        <a class="button ghost" href="{{ url_for('documents') }}">Voltar</a>
+        <a class="button" href="{{ url_for('file_view', file_id=file.id) }}" target="_blank">Visualizar</a>
+        <a class="button" href="{{ url_for('file_download', file_id=file.id) }}">Baixar</a>
+    </div>
+    <div class="metadata">
+        <span><strong>Classificação</strong>{{ file.classificacao }}</span>
+        <span><strong>Enviado por</strong>{{ file.usuario_nome or "Sistema" }}</span>
+        <span><strong>Data de envio</strong>{{ format_date(file.criado_em) }}</span>
+        <span><strong>Última análise</strong>{{ format_date(file.extraido_em) or "Não analisado" }}</span>
+    </div>
+</section>
+
+{% if has_permission('arquivos', 'analyze') %}
+<form method="post" action="{{ url_for('file_analyze', file_id=file.id) }}" class="panel inline-panel">
+    <label class="checkline">
+        <input type="checkbox" name="importar_controles">
+        <span>Importar linhas como controles quando a planilha possuir coluna de título/controle</span>
+    </label>
+    <button class="button primary" type="submit">Analisar arquivo</button>
+</form>
+{% endif %}
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>Texto extraído</h2>
+    </div>
+    {% if file.extraido_texto %}
+        <pre class="extracted-text">{{ file.extraido_texto }}</pre>
+    {% else %}
+        <p class="empty">Nenhuma extração registrada para este documento.</p>
+    {% endif %}
+</section>
+{% endblock %}

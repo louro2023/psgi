@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Entrar | PGSI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="login-body">
+    <main class="login-wrap">
+        <section class="login-panel">
+            <div class="brand large">
+                <span class="brand-mark">PG</span>
+                <span>
+                    <strong>PGSI</strong>
+                    <small>Gestão de Segurança da Informação</small>
+                </span>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-stack">
+                        {% for category, message in messages %}
+                            <div class="flash {{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <form method="post" class="form-grid single">
+                <label>
+                    <span>E-mail</span>
+                    <input type="email" name="email" autocomplete="username" required autofocus>
+                </label>
+                <label>
+                    <span>Senha</span>
+                    <input type="password" name="senha" autocomplete="current-password" required>
+                </label>
+                <button class="button primary full" type="submit">Entrar</button>
+                <a class="muted-link" href="#">Recuperar senha</a>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

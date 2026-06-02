@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Documentos | PGSI{% endblock %}
+{% block heading %}Documentos e Evidências{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+{% if has_permission('arquivos', 'create') %}
+<form method="post" enctype="multipart/form-data" class="panel form-panel">
+    <div class="form-grid">
+        <label class="span-2">
+            <span>Arquivo</span>
+            <input type="file" name="arquivo" required>
+        </label>
+        <label>
+            <span>Classificação</span>
+            <select name="classificacao" required>
+                {% for option in ['Público', 'Interno', 'Restrito', 'Confidencial', 'Sensível'] %}
+                    <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Controle</span>
+            <select name="controle_id">
+                <option value="">Não vincular</option>
+                {% for value, label in choices.controles %}
+                    <option value="{{ value }}" {% if defaults.get('controle_id') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Risco</span>
+            <select name="risco_id">
+                <option value="">Não vincular</option>
+                {% for value, label in choices.riscos %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Incidente</span>
+            <select name="incidente_id">
+                <option value="">Não vincular</option>
+                {% for value, label in choices.incidentes %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Ação</span>
+            <select name="acao_id">
+                <option value="">Não vincular</option>
+                {% for value, label in choices.acoes %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Pessoa</span>
+            <select name="pessoa_id">
+                <option value="">Não vincular</option>
+                {% for value, label in choices.pessoas %}
+                    <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+    <div class="form-actions">
+        <button class="button primary" type="submit">Enviar documento</button>
+    </div>
+</form>
+{% endif %}
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Documento</th>
+                <th>Classificação</th>
+                <th>Vínculo</th>
+                <th>Enviado por</th>
+                <th>Data</th>
+                <th class="actions-col">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in rows %}
+                <tr>
+                    <td>
+                        <strong>{{ file.nome_original }}</strong>
+                        <small>{{ (file.tamanho / 1024)|round(1) }} KB · {{ file.tipo or "tipo não informado" }}</small>
+                    </td>
+                    <td><span class="badge {{ file.classificacao|status_class }}">{{ file.classificacao }}</span></td>
+                    <td>
+                        {{ file.controle_titulo or file.risco_titulo or file.incidente_numero or file.acao_titulo or file.pessoa_nome or "Sem vínculo" }}
+                    </td>
+                    <td>{{ file.usuario_nome or "Sistema" }}</td>
+                    <td>{{ format_date(file.criado_em) }}</td>
+                    <td class="row-actions">
+                        <a class="button small" href="{{ url_for('file_detail', file_id=file.id) }}">Detalhes</a>
+                        <a class="button small ghost" href="{{ url_for('file_view', file_id=file.id) }}" target="_blank">Visualizar</a>
+                        <a class="button small ghost" href="{{ url_for('file_download', file_id=file.id) }}">Baixar</a>
+                        {% if has_permission('arquivos', 'delete') %}
+                            <form method="post" action="{{ url_for('file_delete', file_id=file.id) }}" data-confirm="Inativar este documento?">
+                                <button class="button small danger" type="submit">Inativar</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="6" class="empty">Nenhum documento encontrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

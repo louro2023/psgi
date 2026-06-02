@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Relatórios | PGSI{% endblock %}
+{% block heading %}Relatórios{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+<section class="toolbar">
+    <form method="get" class="filters">
+        <label>
+            <span>Tipo</span>
+            <select name="tipo">
+                {% for value, label in report_types.items() %}
+                    <option value="{{ value }}" {% if report.kind == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Início</span>
+            <input type="date" name="inicio" value="{{ filters.get('inicio', '') }}">
+        </label>
+        <label>
+            <span>Fim</span>
+            <input type="date" name="fim" value="{{ filters.get('fim', '') }}">
+        </label>
+        <label>
+            <span>Status</span>
+            <input type="text" name="status" value="{{ filters.get('status', '') }}">
+        </label>
+        <label>
+            <span>Categoria</span>
+            <input type="text" name="categoria" value="{{ filters.get('categoria', '') }}">
+        </label>
+        <label>
+            <span>Responsável</span>
+            <select name="responsavel_id">
+                <option value="">Todos</option>
+                {% for value, label in people %}
+                    <option value="{{ value }}" {% if filters.get('responsavel_id') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="button primary" type="submit">Gerar</button>
+    </form>
+    {% if has_permission('relatorios', 'export') %}
+        <div class="export-actions">
+            <a class="button ghost" href="{{ url_for('report_export', fmt='pdf', **request.args) }}">PDF</a>
+            <a class="button ghost" href="{{ url_for('report_export', fmt='xlsx', **request.args) }}">Excel</a>
+            <a class="button ghost" href="{{ url_for('report_export', fmt='csv', **request.args) }}">CSV</a>
+        </div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>{{ report.title }}</h2>
+        <span>{{ report.rows|length }} registro(s)</span>
+    </div>
+    <div class="table-wrap embedded">
+        <table>
+            <thead>
+                <tr>
+                    {% for key, label in report.columns %}
+                        <th>{{ label }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.rows %}
+                    <tr>
+                        {% for key, label in report.columns %}
+                            <td>{{ row[key] if row is mapping else row[key] }}</td>
+                        {% endfor %}
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="{{ report.columns|length }}" class="empty">Nenhum dado para os filtros selecionados.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

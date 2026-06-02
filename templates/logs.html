@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Auditoria | PGSI{% endblock %}
+{% block heading %}Auditoria{% endblock %}
+
+{% block content %}
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Usuário</th>
+                <th>Ação</th>
+                <th>Tabela</th>
+                <th>Registro</th>
+                <th>IP</th>
+                <th>Detalhes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in rows %}
+                <tr>
+                    <td>{{ format_date(log.data_hora) }}</td>
+                    <td>{{ log.usuario_nome or "Sistema" }}</td>
+                    <td><span class="badge neutral">{{ log.acao }}</span></td>
+                    <td>{{ log.tabela_afetada or "" }}</td>
+                    <td>{{ log.registro_id or "" }}</td>
+                    <td>{{ log.ip or "" }}</td>
+                    <td>{{ log.detalhes or "" }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="7" class="empty">Nenhum evento de auditoria registrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

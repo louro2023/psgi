@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ config.title }} | PGSI{% endblock %}
+{% block heading %}{{ config.title }}{% endblock %}
+
+{% block content %}
+{% include "control_tabs.html" %}
+
+<section class="toolbar">
+    <form method="get" class="filters">
+        <label>
+            <span>Pesquisar</span>
+            <input type="search" name="q" value="{{ filters.get('q', '') }}" placeholder="Nome, categoria, setor...">
+        </label>
+        {% if config.filters.status %}
+            <label>
+                <span>Status</span>
+                <input type="text" name="status" value="{{ filters.get('status', '') }}">
+            </label>
+        {% endif %}
+        {% if config.filters.categoria %}
+            <label>
+                <span>Categoria</span>
+                <input type="text" name="categoria" value="{{ filters.get('categoria', '') }}">
+            </label>
+        {% endif %}
+        {% if config.filters.setor %}
+            <label>
+                <span>Setor</span>
+                <input type="text" name="setor" value="{{ filters.get('setor', '') }}">
+            </label>
+        {% endif %}
+        {% if config.filters.responsavel_id %}
+            <label>
+                <span>Responsável</span>
+                <select name="responsavel_id">
+                    <option value="">Todos</option>
+                    {% for value, label in people %}
+                        <option value="{{ value }}" {% if filters.get('responsavel_id') == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        {% endif %}
+        {% if config.filters.perfil_id %}
+            <label>
+                <span>Perfil</span>
+                <select name="perfil_id">
+                    <option value="">Todos</option>
+                    {% for value, label in profiles %}
+                        <option value="{{ value }}" {% if filters.get('perfil_id') == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        {% endif %}
+        <button class="button primary" type="submit">Filtrar</button>
+        <a class="button ghost" href="{{ url_for('entity_list', entity=entity) }}">Limpar</a>
+    </form>
+    {% if has_permission(config.module, 'create') %}
+        <a class="button primary" href="{{ url_for('entity_create', entity=entity) }}">Cadastrar</a>
+    {% endif %}
+</section>
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                {% for key, label in config.columns %}
+                    <th>{{ label }}</th>
+                {% endfor %}
+                <th class="actions-col">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    {% for key, label in config.columns %}
+                        <td>
+                            {% if key in ['status', 'nivel_risco', 'criticidade', 'prioridade', 'gravidade'] %}
+                                <span class="badge {{ row[key]|status_class }}">{{ row[key] }}</span>
+                            {% else %}
+                                {{ row[key] or "" }}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                    <td class="row-actions">
+                        {% if entity == 'controles' and has_permission('arquivos', 'create') %}
+                            <a class="button small ghost" href="{{ url_for('documents', controle_id=row.id) }}">Evidência</a>
+                        {% endif %}
+                        {% if has_permission(config.module, 'edit') %}
+                            <a class="button small" href="{{ url_for('entity_edit', entity=entity, item_id=row.id) }}">Editar</a>
+                        {% endif %}
+                        {% if has_permission(config.module, 'delete') %}
+                            <form method="post" action="{{ url_for('entity_delete', entity=entity, item_id=row.id) }}" data-confirm="Inativar este registro?">
+                                <button class="button small danger" type="submit">Inativar</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="{{ config.columns|length + 1 }}" class="empty">Nenhum registro encontrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
