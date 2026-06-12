@@ -3494,6 +3494,77 @@ def not_found(_: Exception):
     return render_template("error.html", code=404, message="Registro ou página não encontrada."), 404
 
 
+def _verify_api_token() -> bool:
+    token = os.environ.get("PGSI_API_TOKEN", "")
+    if not token:
+        return False
+    auth = request.headers.get("Authorization", "")
+    return auth == f"Bearer {token}"
+
+
+@app.route("/api/incidentes", methods=["POST"])
+def api_create_incidente():
+    if not _verify_api_token():
+        return {"erro": "Não autorizado"}, 401
+
+    data = request.get_json(silent=True)
+    if not data:
+        return {"erro": "JSON inválido"}, 400
+
+    titulo = (data.get("titulo") or "").strip()
+    if not titulo:
+        return {"erro": "Campo 'titulo' obrigatório"}, 400
+
+    tipo = data.get("tipo", "Malware")
+    gravidade = data.get("gravidade", "Alta")
+    ativo_afetado = data.get("ativo_afetado", "")
+    area_afetada = data.get("area_afetada", "")
+    descricao = data.get("descricao", "")
+    causa = data.get("causa", "")
+    numero = data.get("numero") or f"INC-{datetime.now().strftime('%Y-%m%d-%H%M%S')}"
+    data_abertura = data.get("data_abertura") or date.today().isoformat()
+
+    tipos_validos = ["Indisponibilidade de sistema", "Vazamento de dados", "Acesso indevido",
+                     "Malware", "Phishing", "Falha de backup", "Falha de rede",
+                     "Perda de equipamento", "Outro"]
+    gravidades_validas = ["Baixa", "Média", "Alta", "Crítica"]
+
+    if tipo not in tipos_validos:
+        tipo = "Malware"
+    if gravidade not in gravidades_validas:
+        gravidade = "Alta"
+
+    db = get_db()
+
+    numero_existe = db.execute("SELECT id FROM incidentes WHERE numero = ?", (numero,)).fetchone()
+    if numero_existe:
+        return {"erro": f"Incidente {numero} já existe", "id": numero_existe["id"]}, 409
+
+    cursor = db.execute(
+        """
+        INSERT INTO incidentes
+            (numero, titulo, descricao, tipo, gravidade, ativo_afetado,
+             area_afetada, status, data_abertura, causa, criado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Aberto', ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (numero, titulo, descricao, tipo, gravidade, ativo_afetado,
+         area_afetada, data_abertura, causa),
+    )
+    db.commit()
+    incidente_id = cursor.lastrowid
+
+    db.execute(
+        """
+        INSERT INTO logs_auditoria (usuario_id, acao, tabela_afetada, registro_id, ip, detalhes)
+        VALUES (NULL, 'criar_api', 'incidentes', ?, ?, ?)
+        """,
+        (incidente_id, request.remote_addr, f"Incidente criado via API: {titulo}"),
+    )
+    db.commit()
+
+    return {"sucesso": True, "id": incidente_id, "numero": numero}, 201
+
+
 with app.app_context():
     init_db()
 
