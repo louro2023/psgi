@@ -3524,15 +3524,22 @@ def api_create_incidente():
     numero = data.get("numero") or f"INC-{datetime.now().strftime('%Y-%m%d-%H%M%S')}"
     data_abertura = data.get("data_abertura") or date.today().isoformat()
 
-    tipos_validos = ["Indisponibilidade de sistema", "Vazamento de dados", "Acesso indevido",
-                     "Malware", "Phishing", "Falha de backup", "Falha de rede",
-                     "Perda de equipamento", "Outro"]
-    gravidades_validas = ["Baixa", "Média", "Alta", "Crítica"]
+    tipos_ciberseguranca = {
+        "Malware", "Phishing", "Vazamento de dados",
+        "Acesso indevido", "Ransomware", "Outro",
+    }
+    gravidades_validas = {"Baixa", "Média", "Alta", "Crítica"}
 
-    if tipo not in tipos_validos:
-        tipo = "Malware"
+    if tipo not in tipos_ciberseguranca:
+        return {
+            "erro": f"Tipo '{tipo}' não é evento de cibersegurança.",
+            "tipos_aceitos": sorted(tipos_ciberseguranca),
+        }, 422
+
     if gravidade not in gravidades_validas:
         gravidade = "Alta"
+
+    tipo_normalizado = tipo if tipo != "Ransomware" else "Malware"
 
     db = get_db()
 
@@ -3547,7 +3554,7 @@ def api_create_incidente():
              area_afetada, status, data_abertura, causa, criado_em)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Aberto', ?, ?, CURRENT_TIMESTAMP)
         """,
-        (numero, titulo, descricao, tipo, gravidade, ativo_afetado,
+        (numero, titulo, descricao, tipo_normalizado, gravidade, ativo_afetado,
          area_afetada, data_abertura, causa),
     )
     db.commit()
