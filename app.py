@@ -1297,7 +1297,10 @@ def add_security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+        "default-src 'self'; style-src 'self' 'unsafe-inline' https://use.typekit.net; "
+        "script-src 'self' 'unsafe-inline' https://use.typekit.net; "
+        "font-src 'self' data: https://use.typekit.net https://p.typekit.net; "
+        "img-src 'self' data: https://use.typekit.net",
     )
     return response
 
