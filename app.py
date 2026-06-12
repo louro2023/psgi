@@ -3,9 +3,12 @@ from __future__ import annotations
 import csv
 import io
 import json
+import mimetypes
 import os
+import secrets
 import shutil
 import sqlite3
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -65,10 +68,26 @@ TODAY = date.today()
 
 
 app = Flask(__name__)
+
+_secret_key = os.environ.get("PGSI_SECRET_KEY")
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    print(
+        "WARNING: PGSI_SECRET_KEY not set. Using random key — sessions will not survive restarts.\n"
+        "         Set PGSI_SECRET_KEY env var before deploying to production."
+    )
+
 app.config.update(
-    SECRET_KEY=os.environ.get("PGSI_SECRET_KEY", "pgsi-dev-change-me"),
+    SECRET_KEY=_secret_key,
     MAX_CONTENT_LENGTH=25 * 1024 * 1024,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=os.environ.get("PGSI_SECURE_COOKIES", "0") == "1",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
 )
+
+from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 
 SCHEMA_SQL = """
@@ -970,6 +989,49 @@ ENTITY_CONFIGS: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_admin_password() -> str:
+    pw = os.environ.get("PGSI_ADMIN_PASSWORD", "")
+    if not pw:
+        pw = secrets.token_urlsafe(16)
+        print(
+            f"WARNING: PGSI_ADMIN_PASSWORD not set.\n"
+            f"         Generated admin password: {pw}\n"
+            f"         Set PGSI_ADMIN_PASSWORD env var or change this password immediately."
+        )
+    return pw
+
+
+_login_attempts: dict[str, list[float]] = {}
+_RATE_LIMIT_WINDOW = 60.0
+_RATE_LIMIT_MAX = 10
+
+
+def _check_rate_limit(ip: str) -> bool:
+    now = time.monotonic()
+    attempts = [t for t in _login_attempts.get(ip, []) if now - t < _RATE_LIMIT_WINDOW]
+    _login_attempts[ip] = attempts
+    if len(attempts) >= _RATE_LIMIT_MAX:
+        return False
+    _login_attempts[ip].append(now)
+    return True
+
+
+def _is_safe_url(url: str | None) -> bool:
+    if not url:
+        return False
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    return not parsed.netloc and not parsed.scheme
+
+
+def _file_path(file_row: sqlite3.Row) -> Path:
+    caminho = file_row["caminho"]
+    p = Path(caminho)
+    if p.is_absolute():
+        return p
+    return UPLOAD_DIR / caminho
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
         g.db = sqlite3.connect(DATABASE)
@@ -1047,13 +1109,15 @@ def seed_database(db: sqlite3.Connection) -> None:
             )
 
     admin_profile = db.execute("SELECT id FROM perfis WHERE nome = 'Administrador'").fetchone()["id"]
-    db.execute(
-        """
-        INSERT OR IGNORE INTO usuarios (nome, email, senha_hash, perfil_id, setor, status)
-        VALUES (?, ?, ?, ?, ?, 'Ativo')
-        """,
-        ("Administrador PGSI", "admin@pgsi.local", generate_password_hash("Admin@123"), admin_profile, "Segurança da Informação"),
-    )
+    admin_exists = db.execute("SELECT id FROM usuarios WHERE email = 'admin@pgsi.local'").fetchone()
+    if not admin_exists:
+        db.execute(
+            """
+            INSERT INTO usuarios (nome, email, senha_hash, perfil_id, setor, status)
+            VALUES (?, ?, ?, ?, ?, 'Ativo')
+            """,
+            ("Administrador PGSI", "admin@pgsi.local", generate_password_hash(_get_admin_password()), admin_profile, "Segurança da Informação"),
+        )
 
     if db.execute("SELECT COUNT(*) AS total FROM pessoas").fetchone()["total"] == 0:
         pessoas = [
@@ -1223,7 +1287,19 @@ def seed_database(db: sqlite3.Connection) -> None:
 
 
 def current_date() -> date:
-    return TODAY
+    return date.today()
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+    )
+    return response
 
 
 def parse_date(value: str | None) -> date | None:
@@ -1267,7 +1343,7 @@ def audit(action: str, table: str | None = None, record_id: int | None = None, d
         INSERT INTO logs_auditoria (usuario_id, acao, tabela_afetada, registro_id, ip, detalhes)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (user_id, action, table, record_id, request.headers.get("X-Forwarded-For", request.remote_addr), details),
+        (user_id, action, table, record_id, request.remote_addr, details),
     )
     db.commit()
 
@@ -1546,7 +1622,10 @@ def collect_entity_payload(entity: str, item_id: int | None = None) -> tuple[dic
             if item_id is None and not password:
                 errors.append("A senha é obrigatória para novo usuário.")
             if password:
-                payload["senha_hash"] = generate_password_hash(password)
+                if len(password) < 8:
+                    errors.append("A senha deve ter pelo menos 8 caracteres.")
+                else:
+                    payload["senha_hash"] = generate_password_hash(password)
             continue
         value = normalize_field_value(field, request.form)
         if field.get("required") and value in (None, ""):
@@ -1661,6 +1740,10 @@ def login():
     if g.get("user"):
         return redirect(url_for("dashboard"))
     if request.method == "POST":
+        client_ip = request.remote_addr or "unknown"
+        if not _check_rate_limit(client_ip):
+            flash("Muitas tentativas. Aguarde 1 minuto e tente novamente.", "error")
+            return render_template("login.html")
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("senha", "")
         user = get_db().execute(
@@ -1675,9 +1758,10 @@ def login():
         if user and user["status"] == "Ativo" and check_password_hash(user["senha_hash"], password):
             session.clear()
             session["user_id"] = user["id"]
+            session.permanent = True
             audit("login", "usuarios", user["id"], "Login realizado")
             next_url = request.args.get("next")
-            return redirect(next_url or url_for("dashboard"))
+            return redirect(next_url if _is_safe_url(next_url) else url_for("dashboard"))
         flash("E-mail ou senha inválidos.", "error")
     return render_template("login.html")
 
@@ -2873,6 +2957,7 @@ def documents():
         saved = f"{uuid.uuid4().hex}.{ext}"
         path = UPLOAD_DIR / saved
         upload.save(path)
+        mime = mimetypes.guess_type(original)[0] or "application/octet-stream"
         classification = request.form.get("classificacao", "Interno")
         cursor = get_db().execute(
             """
@@ -2884,8 +2969,8 @@ def documents():
             (
                 original,
                 saved,
-                upload.mimetype,
-                str(path),
+                mime,
+                saved,
                 path.stat().st_size,
                 classification,
                 request.form.get("descricao", "").strip() or None,
@@ -2901,8 +2986,9 @@ def documents():
         get_db().commit()
         audit("upload", "arquivos", cursor.lastrowid, f"Arquivo enviado: {original}")
         flash("Documento enviado com sucesso.", "success")
-        if request.form.get("next"):
-            return redirect(request.form["next"])
+        next_url = request.form.get("next")
+        if _is_safe_url(next_url):
+            return redirect(next_url)
         return redirect(url_for("file_detail", file_id=cursor.lastrowid))
 
     if not has_permission("arquivos", "view"):
@@ -2968,7 +3054,7 @@ def file_download(file_id: int):
     file_row = get_file(file_id)
     if not can_access_file(file_row, "download"):
         abort(403)
-    return send_file(file_row["caminho"], as_attachment=True, download_name=file_row["nome_original"])
+    return send_file(_file_path(file_row), as_attachment=True, download_name=file_row["nome_original"])
 
 
 @app.route("/arquivos/<int:file_id>/visualizar")
@@ -2977,7 +3063,7 @@ def file_view(file_id: int):
     file_row = get_file(file_id)
     if not can_access_file(file_row, "view"):
         abort(403)
-    return send_file(file_row["caminho"], as_attachment=False, download_name=file_row["nome_original"])
+    return send_file(_file_path(file_row), as_attachment=False, download_name=file_row["nome_original"])
 
 
 @app.route("/arquivos/<int:file_id>/analisar", methods=["POST"])
@@ -3014,7 +3100,7 @@ def file_delete(file_id: int):
 
 
 def extract_file_text(file_row: sqlite3.Row, import_controls: bool = False) -> tuple[str, int]:
-    path = Path(file_row["caminho"])
+    path = _file_path(file_row)
     ext = path.suffix.lower().lstrip(".")
     imported = 0
     if ext == "pdf":
@@ -3410,4 +3496,4 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1")
