@@ -21,6 +21,7 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -283,6 +284,45 @@ CREATE TABLE IF NOT EXISTS indicadores (
     criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS documento_numeradores (
+    ano INTEGER PRIMARY KEY,
+    ultimo_numero INTEGER NOT NULL DEFAULT 0,
+    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS documentos_expediente (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fluxo TEXT NOT NULL,
+    tipo_documento TEXT NOT NULL,
+    numero_sequencial INTEGER,
+    ano INTEGER,
+    numero_formatado TEXT,
+    nome_padrao TEXT,
+    numero_original TEXT,
+    orgao_origem TEXT,
+    data_recebimento TEXT,
+    responsavel_interno_id INTEGER,
+    prazo_limite TEXT,
+    data_emissao TEXT,
+    assunto TEXT,
+    destinatario_orgao TEXT,
+    destinatario_nome TEXT,
+    tramitacao_especial TEXT,
+    observacoes TEXT,
+    status TEXT NOT NULL,
+    id_usuario_emissor INTEGER,
+    emissor_nome TEXT,
+    emissor_cargo TEXT,
+    emissor_matricula TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (numero_sequencial, ano),
+    UNIQUE (numero_formatado),
+    FOREIGN KEY (id_usuario_emissor) REFERENCES usuarios(id),
+    FOREIGN KEY (responsavel_interno_id) REFERENCES pessoas(id)
+);
+
 CREATE TABLE IF NOT EXISTS logs_auditoria (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     usuario_id INTEGER,
@@ -307,6 +347,7 @@ MODULE_LABELS = {
     "incidentes": "Incidentes",
     "acoes": "Plano de ação",
     "arquivos": "Documentos",
+    "expedientes": "Ofícios e memorandos",
     "relatorios": "Relatórios",
     "logs": "Auditoria",
     "backup": "Backup",
@@ -332,6 +373,7 @@ PERMISSION_MATRIX = {
     "incidentes": ["view", "create", "edit", "delete"],
     "acoes": ["view", "create", "edit", "delete"],
     "arquivos": ["view", "create", "edit", "delete", "download", "analyze"],
+    "expedientes": ["view", "create", "edit", "delete"],
     "relatorios": ["view", "export"],
     "logs": ["view"],
     "backup": ["view", "create"],
@@ -351,6 +393,7 @@ def permissions_for_role(role: str) -> dict[str, list[str]]:
             "incidentes": ["view", "create", "edit"],
             "acoes": ["view", "create", "edit", "delete"],
             "arquivos": ["view", "create", "edit", "download", "analyze"],
+            "expedientes": ["view", "create", "edit", "delete"],
             "relatorios": ["view", "export"],
             "logs": ["view"],
         }
@@ -363,6 +406,7 @@ def permissions_for_role(role: str) -> dict[str, list[str]]:
             "incidentes": ["view", "create", "edit"],
             "acoes": ["view", "edit"],
             "arquivos": ["view", "create", "download", "analyze"],
+            "expedientes": ["view", "create", "edit"],
         }
     if role == "Auditor":
         return {
@@ -373,6 +417,7 @@ def permissions_for_role(role: str) -> dict[str, list[str]]:
             "incidentes": ["view"],
             "acoes": ["view"],
             "arquivos": ["view", "download", "analyze"],
+            "expedientes": ["view"],
             "relatorios": ["view", "export"],
             "logs": ["view"],
         }
@@ -385,11 +430,13 @@ def permissions_for_role(role: str) -> dict[str, list[str]]:
             "incidentes": ["view"],
             "acoes": ["view"],
             "arquivos": ["view", "download"],
+            "expedientes": ["view"],
             "relatorios": ["view"],
         }
     return {
         "dashboard": ["view"],
         "arquivos": ["view", "create", "download"],
+        "expedientes": ["view", "create"],
     }
 
 
@@ -414,6 +461,11 @@ ACTION_STATUSES = [
 ]
 
 INCIDENT_STATUSES = ["Aberto", "Em andamento", "Contido", "Encerrado", "Cancelado"]
+
+DOCUMENT_TYPES = ["Ofício", "Memorando"]
+
+OUTGOING_DOCUMENT_STATUSES = ["Reservado", "Utilizado", "Cancelado"]
+INCOMING_DOCUMENT_STATUSES = ["Pendente", "Em Análise", "Respondido", "Arquivado"]
 
 ASSET_TYPES = [
     "Servidor",
@@ -1061,6 +1113,57 @@ def run_migrations(db: sqlite3.Connection) -> None:
     ensure_column(db, "acoes", "eixo", "TEXT")
     ensure_column(db, "arquivos", "descricao", "TEXT")
     ensure_column(db, "arquivos", "eixo", "TEXT")
+    ensure_column(db, "documentos_expediente", "observacoes", "TEXT")
+    ensure_column(db, "documentos_expediente", "tramitacao_especial", "TEXT")
+    document_columns = {row["name"] for row in db.execute("PRAGMA table_info(documentos_expediente)").fetchall()}
+    if "corpo_texto" in document_columns:
+        db.execute(
+            """
+            UPDATE documentos_expediente
+            SET observacoes = corpo_texto
+            WHERE observacoes IS NULL AND corpo_texto IS NOT NULL
+            """
+        )
+    db.execute(
+        """
+        UPDATE documentos_expediente
+        SET status = CASE
+            WHEN status = 'Assinado/Enviado' THEN 'Utilizado'
+            WHEN status = 'Em Rascunho' THEN 'Reservado'
+            ELSE status
+        END
+        WHERE fluxo = 'saida' AND status IN ('Assinado/Enviado', 'Em Rascunho')
+        """
+    )
+    current_year = date.today().year
+    current_counter = db.execute("SELECT ultimo_numero FROM documento_numeradores WHERE ano = ?", (current_year,)).fetchone()
+    current_max = db.execute(
+        "SELECT COALESCE(MAX(numero_sequencial), 0) AS ultimo FROM documentos_expediente WHERE ano = ?",
+        (current_year,),
+    ).fetchone()["ultimo"]
+    minimum_current_number = 47
+    target_number = max(current_max or 0, minimum_current_number)
+    if current_counter:
+        if current_counter["ultimo_numero"] < target_number:
+            db.execute(
+                "UPDATE documento_numeradores SET ultimo_numero = ?, atualizado_em = CURRENT_TIMESTAMP WHERE ano = ?",
+                (target_number, current_year),
+            )
+    else:
+        db.execute(
+            "INSERT INTO documento_numeradores (ano, ultimo_numero) VALUES (?, ?)",
+            (current_year, target_number),
+        )
+    db.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_documentos_expediente_fluxo_status
+            ON documentos_expediente (fluxo, status);
+        CREATE INDEX IF NOT EXISTS idx_documentos_expediente_ano_numero
+            ON documentos_expediente (ano, numero_sequencial);
+        CREATE INDEX IF NOT EXISTS idx_documentos_expediente_datas
+            ON documentos_expediente (data_emissao, data_recebimento);
+        """
+    )
     backfill_axes(db)
 
 
@@ -1444,6 +1547,7 @@ def inject_globals() -> dict[str, Any]:
             "title": "Operação",
             "items": [
                 {"module": "incidentes", "label": "Incidentes", "endpoint": "entity_list", "params": {"entity": "incidentes"}, "hint": "Registro e resposta"},
+                {"module": "expedientes", "label": "Ofícios e memorandos", "endpoint": "office_documents", "params": {}, "hint": "Entradas, saídas e numeração"},
                 {"module": "pessoas", "label": "Pessoas", "endpoint": "entity_list", "params": {"entity": "pessoas"}, "hint": "Responsáveis e áreas"},
             ],
         },
@@ -1539,6 +1643,8 @@ def control_area_for_entity(entity: str | None) -> str | None:
 
 def is_nav_active(item: dict[str, Any]) -> bool:
     endpoint = request.endpoint or ""
+    if item["endpoint"] == "office_documents" and endpoint.startswith("office_"):
+        return True
     if item.get("area") == "controles":
         if endpoint in {"security_areas", "security_area_detail"}:
             return True
@@ -1564,7 +1670,7 @@ def status_class(value: Any) -> str:
         return "danger"
     if any(word in normalized for word in ["pendente", "andamento", "revisão", "revisao", "médio", "medio", "manutenção", "manutencao", "reservado", "aguardando"]):
         return "warning"
-    if any(word in normalized for word in ["implementado", "concluído", "concluido", "encerrado", "baixo", "baixa", "ativo", "mitigado"]):
+    if any(word in normalized for word in ["implementado", "concluído", "concluido", "encerrado", "baixo", "baixa", "ativo", "mitigado", "utilizado"]):
         return "success"
     return "neutral"
 
@@ -2924,6 +3030,631 @@ def entity_delete(entity: str, item_id: int):
     audit("inativar", table, item_id, f"{config['title']} inativado")
     flash(f"Registro inativado em {config['title']}.", "success")
     return redirect(url_for("entity_list", entity=entity))
+
+
+def clean_value(source: dict[str, Any], key: str, default: str = "") -> str:
+    value = source.get(key, default) if source else default
+    return str(value).strip() if value is not None else ""
+
+
+def nullable_value(source: dict[str, Any], key: str) -> str | None:
+    value = clean_value(source, key)
+    return value or None
+
+
+def int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def document_type_prefix(document_type: str | None) -> str:
+    return {
+        "Ofício": "O",
+        "Memorando": "M",
+    }.get(document_type or "", "D")
+
+
+def normalize_document_type(value: str | None) -> str:
+    return value if value in DOCUMENT_TYPES else DOCUMENT_TYPES[0]
+
+
+def format_document_number(number: int, year: int) -> str:
+    return f"{number:03d}/{year}"
+
+
+def build_institutional_document_name(document_type: str, number: int, year: int) -> str:
+    return f"{document_type_prefix(document_type)} - {number:03d}-{str(year)[-2:]}"
+
+
+def current_user_document_metadata() -> dict[str, str | None]:
+    user = g.get("user")
+    if not user:
+        return {"emissor_nome": None, "emissor_cargo": None, "emissor_matricula": None}
+    metadata = {
+        "emissor_nome": user["nome"],
+        "emissor_cargo": user["setor"],
+        "emissor_matricula": None,
+    }
+    person = get_db().execute(
+        """
+        SELECT nome, cargo, matricula
+        FROM pessoas
+        WHERE lower(email) = lower(?) OR nome = ?
+        ORDER BY CASE WHEN lower(email) = lower(?) THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        (user["email"], user["nome"], user["email"]),
+    ).fetchone()
+    if person:
+        metadata["emissor_nome"] = person["nome"] or metadata["emissor_nome"]
+        metadata["emissor_cargo"] = person["cargo"] or metadata["emissor_cargo"]
+        metadata["emissor_matricula"] = person["matricula"] or metadata["emissor_matricula"]
+    return metadata
+
+
+def fetch_document(document_id: int) -> sqlite3.Row | None:
+    return get_db().execute(
+        """
+        SELECT d.*, u.nome AS usuario_nome, p.nome AS responsavel_nome
+        FROM documentos_expediente d
+        LEFT JOIN usuarios u ON u.id = d.id_usuario_emissor
+        LEFT JOIN pessoas p ON p.id = d.responsavel_interno_id
+        WHERE d.id = ? AND d.ativo = 1
+        """,
+        (document_id,),
+    ).fetchone()
+
+
+def document_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {key: row[key] for key in row.keys()}
+
+
+def reserve_document_number(
+    document_type: str | None = None,
+    status: str = "Reservado",
+) -> sqlite3.Row:
+    db = get_db()
+    year = date.today().year
+    document_type = normalize_document_type(document_type)
+    status = status if status in OUTGOING_DOCUMENT_STATUSES else "Reservado"
+    issuer = current_user_document_metadata()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        counter = db.execute("SELECT ultimo_numero FROM documento_numeradores WHERE ano = ?", (year,)).fetchone()
+        last_document = db.execute(
+            "SELECT COALESCE(MAX(numero_sequencial), 0) AS ultimo FROM documentos_expediente WHERE ano = ?",
+            (year,),
+        ).fetchone()["ultimo"]
+        last_number = max(counter["ultimo_numero"] if counter else 0, last_document or 0)
+        next_number = last_number + 1
+        if counter:
+            db.execute(
+                "UPDATE documento_numeradores SET ultimo_numero = ?, atualizado_em = CURRENT_TIMESTAMP WHERE ano = ?",
+                (next_number, year),
+            )
+        else:
+            db.execute(
+                "INSERT INTO documento_numeradores (ano, ultimo_numero) VALUES (?, ?)",
+                (year, next_number),
+            )
+        cursor = db.execute(
+            """
+            INSERT INTO documentos_expediente
+                (fluxo, tipo_documento, numero_sequencial, ano, numero_formatado,
+                 nome_padrao, data_emissao, status, id_usuario_emissor, emissor_nome,
+                 emissor_cargo, emissor_matricula)
+            VALUES ('saida', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                document_type,
+                next_number,
+                year,
+                format_document_number(next_number, year),
+                build_institutional_document_name(document_type, next_number, year),
+                date.today().isoformat(),
+                status,
+                g.user["id"] if g.get("user") else None,
+                issuer["emissor_nome"],
+                issuer["emissor_cargo"],
+                issuer["emissor_matricula"],
+            ),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return fetch_document(int(cursor.lastrowid))
+
+
+def collect_outgoing_payload(source: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "tipo_documento": normalize_document_type(clean_value(source, "tipo_documento", DOCUMENT_TYPES[0])),
+        "data_emissao": nullable_value(source, "data_emissao") or date.today().isoformat(),
+        "assunto": nullable_value(source, "assunto"),
+        "destinatario_orgao": nullable_value(source, "destinatario_orgao"),
+        "destinatario_nome": nullable_value(source, "destinatario_nome"),
+        "tramitacao_especial": nullable_value(source, "tramitacao_especial"),
+        "observacoes": nullable_value(source, "observacoes"),
+        "status": clean_value(source, "status", "Reservado") or "Reservado",
+    }
+    if payload["status"] not in OUTGOING_DOCUMENT_STATUSES:
+        payload["status"] = "Reservado"
+    return payload
+
+
+def validate_outgoing_payload(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload["status"] == "Utilizado":
+        required = {
+            "data_emissao": "Data de uso",
+            "assunto": "Assunto",
+            "destinatario_orgao": "Destino/órgão",
+        }
+        for key, label in required.items():
+            if not payload.get(key):
+                errors.append(f"{label} é obrigatório.")
+    return errors
+
+
+def collect_incoming_payload(source: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "tipo_documento": normalize_document_type(clean_value(source, "tipo_documento", DOCUMENT_TYPES[0])),
+        "numero_original": nullable_value(source, "numero_original"),
+        "orgao_origem": nullable_value(source, "orgao_origem"),
+        "data_recebimento": nullable_value(source, "data_recebimento") or date.today().isoformat(),
+        "assunto": nullable_value(source, "assunto"),
+        "responsavel_interno_id": int_or_none(clean_value(source, "responsavel_interno_id")),
+        "prazo_limite": nullable_value(source, "prazo_limite"),
+        "status": clean_value(source, "status", "Pendente") or "Pendente",
+        "tramitacao_especial": nullable_value(source, "tramitacao_especial"),
+        "observacoes": nullable_value(source, "observacoes"),
+    }
+    if payload["status"] not in INCOMING_DOCUMENT_STATUSES:
+        payload["status"] = "Pendente"
+    return payload
+
+
+def validate_incoming_payload(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    required = {
+        "numero_original": "Número do documento original",
+        "orgao_origem": "Órgão de origem",
+        "data_recebimento": "Data de recebimento",
+        "assunto": "Assunto",
+    }
+    for key, label in required.items():
+        if not payload.get(key):
+            errors.append(f"{label} é obrigatório.")
+    return errors
+
+
+def update_outgoing_document(
+    document_id: int,
+    payload: dict[str, Any],
+) -> None:
+    db = get_db()
+    document = fetch_document(document_id)
+    name = None
+    if document and document["numero_sequencial"] and document["ano"]:
+        name = build_institutional_document_name(payload["tipo_documento"], document["numero_sequencial"], document["ano"])
+    update_payload = {
+        "tipo_documento": payload["tipo_documento"],
+        "data_emissao": payload["data_emissao"],
+        "assunto": payload["assunto"],
+        "destinatario_orgao": payload["destinatario_orgao"],
+        "destinatario_nome": payload["destinatario_nome"],
+        "tramitacao_especial": payload["tramitacao_especial"],
+        "observacoes": payload["observacoes"],
+        "status": payload["status"],
+        "nome_padrao": name,
+    }
+    assignments = ", ".join(f"{column} = ?" for column in update_payload)
+    db.execute(
+        f"UPDATE documentos_expediente SET {assignments}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ? AND fluxo = 'saida'",
+        [*update_payload.values(), document_id],
+    )
+    db.commit()
+
+
+def create_incoming_document(payload: dict[str, Any]) -> int:
+    db = get_db()
+    issuer = current_user_document_metadata()
+    cursor = db.execute(
+        """
+        INSERT INTO documentos_expediente
+            (fluxo, tipo_documento, numero_original, orgao_origem, data_recebimento,
+             assunto, responsavel_interno_id, prazo_limite, tramitacao_especial, observacoes, status,
+             id_usuario_emissor, emissor_nome, emissor_cargo, emissor_matricula)
+        VALUES ('entrada', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            payload["tipo_documento"],
+            payload["numero_original"],
+            payload["orgao_origem"],
+            payload["data_recebimento"],
+            payload["assunto"],
+            payload["responsavel_interno_id"],
+            payload["prazo_limite"],
+            payload["tramitacao_especial"],
+            payload["observacoes"],
+            payload["status"],
+            g.user["id"] if g.get("user") else None,
+            issuer["emissor_nome"],
+            issuer["emissor_cargo"],
+            issuer["emissor_matricula"],
+        ),
+    )
+    db.commit()
+    return int(cursor.lastrowid)
+
+
+def update_incoming_document(document_id: int, payload: dict[str, Any]) -> None:
+    db = get_db()
+    db.execute(
+        """
+        UPDATE documentos_expediente
+        SET tipo_documento = ?, numero_original = ?, orgao_origem = ?, data_recebimento = ?,
+            assunto = ?, responsavel_interno_id = ?, prazo_limite = ?, tramitacao_especial = ?, observacoes = ?,
+            status = ?, atualizado_em = CURRENT_TIMESTAMP
+        WHERE id = ? AND fluxo = 'entrada'
+        """,
+        (
+            payload["tipo_documento"],
+            payload["numero_original"],
+            payload["orgao_origem"],
+            payload["data_recebimento"],
+            payload["assunto"],
+            payload["responsavel_interno_id"],
+            payload["prazo_limite"],
+            payload["tramitacao_especial"],
+            payload["observacoes"],
+            payload["status"],
+            document_id,
+        ),
+    )
+    db.commit()
+
+
+def office_document_rows(filters: dict[str, Any]) -> list[sqlite3.Row]:
+    sql = """
+        SELECT d.*, u.nome AS usuario_nome, p.nome AS responsavel_nome
+        FROM documentos_expediente d
+        LEFT JOIN usuarios u ON u.id = d.id_usuario_emissor
+        LEFT JOIN pessoas p ON p.id = d.responsavel_interno_id
+        WHERE d.ativo = 1
+    """
+    params: list[Any] = []
+    query = clean_value(filters, "q")
+    if query:
+        like = f"%{query}%"
+        sql += """
+            AND (
+                d.assunto LIKE ? OR d.destinatario_orgao LIKE ? OR d.destinatario_nome LIKE ?
+                OR d.orgao_origem LIKE ? OR d.numero_original LIKE ? OR d.numero_formatado LIKE ?
+                OR d.nome_padrao LIKE ? OR d.tramitacao_especial LIKE ?
+            )
+        """
+        params.extend([like] * 8)
+    number = clean_value(filters, "numero")
+    if number:
+        like = f"%{number}%"
+        sql += " AND (d.numero_formatado LIKE ? OR d.numero_original LIKE ? OR d.nome_padrao LIKE ?)"
+        params.extend([like, like, like])
+    fluxo = clean_value(filters, "fluxo")
+    if fluxo in {"entrada", "saida"}:
+        sql += " AND d.fluxo = ?"
+        params.append(fluxo)
+    status = clean_value(filters, "status")
+    if status:
+        sql += " AND d.status = ?"
+        params.append(status)
+    date_expr = "COALESCE(d.data_emissao, d.data_recebimento, substr(d.criado_em, 1, 10))"
+    if clean_value(filters, "inicio"):
+        sql += f" AND {date_expr} >= ?"
+        params.append(clean_value(filters, "inicio"))
+    if clean_value(filters, "fim"):
+        sql += f" AND {date_expr} <= ?"
+        params.append(clean_value(filters, "fim"))
+    sql += f" ORDER BY {date_expr} DESC, d.id DESC LIMIT 250"
+    return get_db().execute(sql, params).fetchall()
+
+
+def office_dashboard_data(filters: dict[str, Any]) -> dict[str, Any]:
+    db = get_db()
+    today = date.today()
+    year = today.year
+    month = today.strftime("%Y-%m")
+    counter = db.execute("SELECT ultimo_numero FROM documento_numeradores WHERE ano = ?", (year,)).fetchone()
+    last_document = db.execute(
+        "SELECT COALESCE(MAX(numero_sequencial), 0) AS ultimo FROM documentos_expediente WHERE ano = ?",
+        (year,),
+    ).fetchone()["ultimo"]
+    numbers_used = max(counter["ultimo_numero"] if counter else 0, last_document or 0)
+    pending_received = db.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM documentos_expediente
+        WHERE ativo = 1 AND fluxo = 'entrada' AND status IN ('Pendente', 'Em Análise')
+        """
+    ).fetchone()["total"]
+    used_this_month = db.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM documentos_expediente
+        WHERE ativo = 1 AND fluxo = 'saida' AND status = 'Utilizado'
+          AND substr(COALESCE(data_emissao, criado_em), 1, 7) = ?
+        """,
+        (month,),
+    ).fetchone()["total"]
+    return {
+        "cards": [
+            {"label": f"Números gerados em {year}", "value": numbers_used, "tone": "neutral"},
+            {"label": "Recebidos pendentes", "value": pending_received, "tone": "warning"},
+            {"label": "Números utilizados no mês", "value": used_this_month, "tone": "success"},
+        ],
+        "rows": office_document_rows(filters),
+    }
+
+
+def document_form_values(document: sqlite3.Row | None = None) -> dict[str, Any]:
+    values = row_to_dict(document) if document else {}
+    if not document:
+        values.update(
+            {
+                "tipo_documento": DOCUMENT_TYPES[0],
+                "data_emissao": date.today().isoformat(),
+                "data_recebimento": date.today().isoformat(),
+                "status": "Reservado",
+            }
+        )
+        values.update(current_user_document_metadata())
+    if values.get("status") == "Assinado/Enviado":
+        values["status"] = "Utilizado"
+    if values.get("status") == "Em Rascunho":
+        values["status"] = "Reservado"
+    return values
+
+
+def api_permission_required(module: str, action: str = "view"):
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if not g.get("user"):
+                return jsonify({"error": "Autenticação necessária."}), 401
+            if not has_permission(module, action):
+                return jsonify({"error": "Permissão insuficiente."}), 403
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+@app.route("/oficios-memorandos")
+@permission_required("expedientes", "view")
+def office_documents():
+    data = office_dashboard_data(request.args)
+    return render_template(
+        "office_documents.html",
+        data=data,
+        filters=request.args,
+        document_types=DOCUMENT_TYPES,
+        outgoing_statuses=OUTGOING_DOCUMENT_STATUSES,
+        incoming_statuses=INCOMING_DOCUMENT_STATUSES,
+    )
+
+
+@app.route("/oficios-memorandos/gerar-numero", methods=["POST"])
+@permission_required("expedientes", "create")
+def office_generate_number():
+    document = reserve_document_number(
+        request.form.get("tipo_documento"),
+        "Reservado",
+    )
+    audit("reservar_numero", "documentos_expediente", document["id"], document["numero_formatado"])
+    flash(f"Número {document['numero_formatado']} reservado.", "success")
+    return redirect(url_for("office_outgoing_edit", document_id=document["id"]))
+
+
+@app.route("/oficios-memorandos/saida/novo", methods=["GET", "POST"])
+@permission_required("expedientes", "create")
+def office_outgoing_new():
+    values = document_form_values()
+    errors: list[str] = []
+    if request.method == "POST":
+        payload = collect_outgoing_payload(request.form)
+        errors = validate_outgoing_payload(payload)
+        values.update(request.form.to_dict())
+        if not errors:
+            document = reserve_document_number(payload["tipo_documento"], payload["status"])
+            update_outgoing_document(document["id"], payload)
+            audit("criar_saida", "documentos_expediente", document["id"], document["numero_formatado"])
+            flash(f"Número {document['numero_formatado']} registrado.", "success")
+            return redirect(url_for("office_documents", fluxo="saida"))
+    return render_template(
+        "office_outgoing_form.html",
+        document=None,
+        values=values,
+        errors=errors,
+        document_types=DOCUMENT_TYPES,
+        statuses=OUTGOING_DOCUMENT_STATUSES,
+        issuer=current_user_document_metadata(),
+    )
+
+
+@app.route("/oficios-memorandos/saida/<int:document_id>/editar", methods=["GET", "POST"])
+@permission_required("expedientes", "edit")
+def office_outgoing_edit(document_id: int):
+    document = fetch_document(document_id)
+    if not document or document["fluxo"] != "saida":
+        abort(404)
+    values = document_form_values(document)
+    errors: list[str] = []
+    if request.method == "POST":
+        payload = collect_outgoing_payload(request.form)
+        errors = validate_outgoing_payload(payload)
+        values.update(request.form.to_dict())
+        if not errors:
+            update_outgoing_document(document_id, payload)
+            audit("editar_saida", "documentos_expediente", document_id, document["numero_formatado"])
+            flash("Número de ofício atualizado.", "success")
+            return redirect(url_for("office_documents", fluxo="saida"))
+    return render_template(
+        "office_outgoing_form.html",
+        document=document,
+        values=values,
+        errors=errors,
+        document_types=DOCUMENT_TYPES,
+        statuses=OUTGOING_DOCUMENT_STATUSES,
+        issuer={
+            "emissor_nome": document["emissor_nome"],
+            "emissor_cargo": document["emissor_cargo"],
+            "emissor_matricula": document["emissor_matricula"],
+        },
+    )
+
+
+@app.route("/oficios-memorandos/entrada/novo", methods=["GET", "POST"])
+@permission_required("expedientes", "create")
+def office_incoming_new():
+    values = document_form_values()
+    values["status"] = "Pendente"
+    errors: list[str] = []
+    if request.method == "POST":
+        payload = collect_incoming_payload(request.form)
+        errors = validate_incoming_payload(payload)
+        values.update(request.form.to_dict())
+        if not errors:
+            document_id = create_incoming_document(payload)
+            audit("protocolar_entrada", "documentos_expediente", document_id, payload["numero_original"])
+            flash("Documento recebido protocolado.", "success")
+            return redirect(url_for("office_documents", fluxo="entrada"))
+    return render_template(
+        "office_incoming_form.html",
+        document=None,
+        values=values,
+        errors=errors,
+        document_types=DOCUMENT_TYPES,
+        statuses=INCOMING_DOCUMENT_STATUSES,
+        people=get_choice_options("pessoas"),
+    )
+
+
+@app.route("/oficios-memorandos/entrada/<int:document_id>/editar", methods=["GET", "POST"])
+@permission_required("expedientes", "edit")
+def office_incoming_edit(document_id: int):
+    document = fetch_document(document_id)
+    if not document or document["fluxo"] != "entrada":
+        abort(404)
+    values = document_form_values(document)
+    errors: list[str] = []
+    if request.method == "POST":
+        payload = collect_incoming_payload(request.form)
+        errors = validate_incoming_payload(payload)
+        values.update(request.form.to_dict())
+        if not errors:
+            update_incoming_document(document_id, payload)
+            audit("editar_entrada", "documentos_expediente", document_id, payload["numero_original"])
+            flash("Documento recebido atualizado.", "success")
+            return redirect(url_for("office_documents", fluxo="entrada"))
+    return render_template(
+        "office_incoming_form.html",
+        document=document,
+        values=values,
+        errors=errors,
+        document_types=DOCUMENT_TYPES,
+        statuses=INCOMING_DOCUMENT_STATUSES,
+        people=get_choice_options("pessoas"),
+    )
+
+
+@app.route("/oficios-memorandos/<int:document_id>/cancelar", methods=["POST"])
+@permission_required("expedientes", "delete")
+def office_cancel_document(document_id: int):
+    document = fetch_document(document_id)
+    if not document:
+        abort(404)
+    status = "Cancelado" if document["fluxo"] == "saida" else "Arquivado"
+    get_db().execute(
+        "UPDATE documentos_expediente SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?",
+        (status, document_id),
+    )
+    get_db().commit()
+    audit("cancelar_documento", "documentos_expediente", document_id, document["numero_formatado"] or document["numero_original"])
+    flash("Status atualizado.", "success")
+    return redirect(url_for("office_documents", fluxo=document["fluxo"]))
+
+
+@app.route("/api/documentos/gerar-numero", methods=["POST"])
+@api_permission_required("expedientes", "create")
+def api_document_generate_number():
+    data = request.get_json(silent=True) or {}
+    document = reserve_document_number(data.get("tipo_documento"), "Reservado")
+    audit("api_reservar_numero", "documentos_expediente", document["id"], document["numero_formatado"])
+    return jsonify(document_to_dict(document)), 201
+
+
+@app.route("/api/documentos/enviados", methods=["GET", "POST"])
+@api_permission_required("expedientes", "view")
+def api_outgoing_documents():
+    if request.method == "GET":
+        rows = office_document_rows({**request.args, "fluxo": "saida"})
+        return jsonify([document_to_dict(row) for row in rows])
+    if not has_permission("expedientes", "create"):
+        return jsonify({"error": "Permissão insuficiente."}), 403
+    data = request.get_json(silent=True) or {}
+    payload = collect_outgoing_payload(data)
+    errors = validate_outgoing_payload(payload)
+    if errors:
+        return jsonify({"errors": errors}), 400
+    document = reserve_document_number(payload["tipo_documento"], payload["status"])
+    update_outgoing_document(document["id"], payload)
+    document = fetch_document(document["id"])
+    audit("api_criar_saida", "documentos_expediente", document["id"], document["numero_formatado"])
+    return jsonify(document_to_dict(document)), 201
+
+
+@app.route("/api/documentos/recebidos", methods=["GET", "POST"])
+@api_permission_required("expedientes", "view")
+def api_incoming_documents():
+    if request.method == "GET":
+        rows = office_document_rows({**request.args, "fluxo": "entrada"})
+        return jsonify([document_to_dict(row) for row in rows])
+    if not has_permission("expedientes", "create"):
+        return jsonify({"error": "Permissão insuficiente."}), 403
+    data = request.get_json(silent=True) or {}
+    payload = collect_incoming_payload(data)
+    errors = validate_incoming_payload(payload)
+    if errors:
+        return jsonify({"errors": errors}), 400
+    document_id = create_incoming_document(payload)
+    document = fetch_document(document_id)
+    audit("api_protocolar_entrada", "documentos_expediente", document_id, payload["numero_original"])
+    return jsonify(document_to_dict(document)), 201
+
+
+@app.route("/api/documentos/<int:document_id>/status", methods=["PATCH", "POST"])
+@api_permission_required("expedientes", "edit")
+def api_document_status(document_id: int):
+    document = fetch_document(document_id)
+    if not document:
+        return jsonify({"error": "Documento não encontrado."}), 404
+    data = request.get_json(silent=True) or {}
+    status = clean_value(data, "status")
+    allowed = OUTGOING_DOCUMENT_STATUSES if document["fluxo"] == "saida" else INCOMING_DOCUMENT_STATUSES
+    if status not in allowed:
+        return jsonify({"error": "Status inválido."}), 400
+    get_db().execute(
+        "UPDATE documentos_expediente SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?",
+        (status, document_id),
+    )
+    get_db().commit()
+    audit("api_status_documento", "documentos_expediente", document_id, status)
+    return jsonify(document_to_dict(fetch_document(document_id)))
 
 
 def allowed_file(filename: str) -> bool:

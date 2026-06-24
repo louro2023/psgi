@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar número" if document else "Registrar número" }} | PGSI{% endblock %}
+{% block heading %}{{ "Editar número de expediente" if document else "Registrar número de expediente" }}{% endblock %}
+
+{% block content %}
+{% if errors %}
+    <div class="flash error">
+        {% for error in errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<section class="detail-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>{{ values.get('numero_formatado') or "Número gerado ao salvar" }}</h2>
+            {% if values.get('status') %}<span class="badge {{ values.get('status')|status_class }}">{{ values.get('status') }}</span>{% endif %}
+        </div>
+        <div class="metadata">
+            <span><strong>Nomenclatura</strong>{{ values.get('nome_padrao') or "O/M - 000-00" }}</span>
+            <span><strong>Registrado por</strong>{{ issuer.emissor_nome or "" }}</span>
+            <span><strong>Setor/Cargo</strong>{{ issuer.emissor_cargo or "" }}</span>
+            <span><strong>Matrícula</strong>{{ issuer.emissor_matricula or "" }}</span>
+        </div>
+    </div>
+</section>
+
+<form method="post" class="panel form-panel">
+    <div class="form-grid">
+        <label>
+            <span>Tipo</span>
+            <select name="tipo_documento" required>
+                {% for option in document_types %}
+                    <option value="{{ option }}" {% if values.get('tipo_documento') == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Data de uso</span>
+            <input type="date" name="data_emissao" value="{{ values.get('data_emissao', today_iso) }}" required>
+        </label>
+        <label>
+            <span>Status</span>
+            <select name="status" required>
+                {% for option in statuses %}
+                    <option value="{{ option }}" {% if values.get('status') == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="span-2">
+            <span>Assunto</span>
+            <input type="text" name="assunto" value="{{ values.get('assunto', '') }}">
+        </label>
+        <label>
+            <span>Destino/órgão</span>
+            <input type="text" name="destinatario_orgao" value="{{ values.get('destinatario_orgao', '') }}">
+        </label>
+        <label>
+            <span>Destinatário/nome</span>
+            <input type="text" name="destinatario_nome" value="{{ values.get('destinatario_nome', '') }}">
+        </label>
+        <label class="span-2">
+            <span>Tramitação especial</span>
+            <textarea name="tramitacao_especial" rows="3">{{ values.get('tramitacao_especial', '') }}</textarea>
+        </label>
+        <label class="span-2">
+            <span>Observações</span>
+            <textarea name="observacoes" rows="5">{{ values.get('observacoes', '') }}</textarea>
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <a class="button ghost" href="{{ url_for('office_documents', fluxo='saida') }}">Cancelar</a>
+        <button class="button primary" type="submit">Salvar</button>
+    </div>
+</form>
+{% endblock %}

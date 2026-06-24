@@ -1014,6 +1014,14 @@ label em {
     margin-top: 16px;
 }
 
+.reserve-panel {
+    margin-bottom: 18px;
+}
+
+.reserve-panel .form-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+}
+
 .row-actions,
 .export-actions,
 .detail-actions {

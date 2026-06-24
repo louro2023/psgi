@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar entrada" if document else "Protocolar entrada" }} | PGSI{% endblock %}
+{% block heading %}{{ "Editar entrada" if document else "Protocolar entrada" }}{% endblock %}
+
+{% block content %}
+{% if errors %}
+    <div class="flash error">
+        {% for error in errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" class="panel form-panel">
+    <div class="form-grid">
+        <label>
+            <span>Tipo</span>
+            <select name="tipo_documento" required>
+                {% for option in document_types %}
+                    <option value="{{ option }}" {% if values.get('tipo_documento') == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Status</span>
+            <select name="status" required>
+                {% for option in statuses %}
+                    <option value="{{ option }}" {% if values.get('status') == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Número original</span>
+            <input type="text" name="numero_original" value="{{ values.get('numero_original', '') }}" required>
+        </label>
+        <label>
+            <span>Órgão de origem</span>
+            <input type="text" name="orgao_origem" value="{{ values.get('orgao_origem', '') }}" required>
+        </label>
+        <label>
+            <span>Data de recebimento</span>
+            <input type="date" name="data_recebimento" value="{{ values.get('data_recebimento', today_iso) }}" required>
+        </label>
+        <label>
+            <span>Prazo limite</span>
+            <input type="date" name="prazo_limite" value="{{ values.get('prazo_limite', '') }}">
+        </label>
+        <label class="span-2">
+            <span>Assunto</span>
+            <input type="text" name="assunto" value="{{ values.get('assunto', '') }}" required>
+        </label>
+        <label>
+            <span>Responsável interno</span>
+            <select name="responsavel_interno_id">
+                <option value="">Não designado</option>
+                {% for value, label in people %}
+                    <option value="{{ value }}" {% if values.get('responsavel_interno_id')|string == value|string %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="span-2">
+            <span>Tramitação especial</span>
+            <textarea name="tramitacao_especial" rows="3">{{ values.get('tramitacao_especial', '') }}</textarea>
+        </label>
+        <label class="span-2">
+            <span>Observações</span>
+            <textarea name="observacoes" rows="6">{{ values.get('observacoes', '') }}</textarea>
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <a class="button ghost" href="{{ url_for('office_documents', fluxo='entrada') }}">Cancelar</a>
+        <button class="button primary" type="submit">Salvar</button>
+    </div>
+</form>
+{% endblock %}

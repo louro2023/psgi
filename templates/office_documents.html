@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Ofícios e Memorandos | PGSI{% endblock %}
+{% block heading %}Ofícios e Memorandos{% endblock %}
+
+{% block content %}
+<section class="module-hero">
+    <div>
+        <p class="eyebrow">Controle de expedientes</p>
+        <h2>Números utilizados e expedientes recebidos</h2>
+    </div>
+    <div class="control-intro-actions">
+        {% if has_permission('expedientes', 'create') %}
+            <a class="button primary" href="{{ url_for('office_outgoing_new') }}">Registrar número</a>
+            <a class="button" href="{{ url_for('office_incoming_new') }}">Protocolar entrada</a>
+        {% endif %}
+    </div>
+</section>
+
+<section class="metric-grid compact">
+    {% for card in data.cards %}
+        <article class="metric {{ card.tone }}">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+        </article>
+    {% endfor %}
+</section>
+
+{% if has_permission('expedientes', 'create') %}
+<form method="post" action="{{ url_for('office_generate_number') }}" class="panel form-panel reserve-panel">
+    <div class="form-grid">
+        <label>
+            <span>Tipo</span>
+            <select name="tipo_documento">
+                {% for option in document_types %}
+                    <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+    <div class="form-actions">
+        <button class="button primary" type="submit">Reservar próximo número</button>
+    </div>
+</form>
+{% endif %}
+
+<section class="toolbar">
+    <form method="get" class="filters">
+        <label>
+            <span>Pesquisar</span>
+            <input type="search" name="q" value="{{ filters.get('q', '') }}" placeholder="Assunto, destino ou origem">
+        </label>
+        <label>
+            <span>Número</span>
+            <input type="text" name="numero" value="{{ filters.get('numero', '') }}" placeholder="001/2026">
+        </label>
+        <label>
+            <span>Fluxo</span>
+            <select name="fluxo">
+                <option value="">Todos</option>
+                <option value="saida" {% if filters.get('fluxo') == 'saida' %}selected{% endif %}>Saídas</option>
+                <option value="entrada" {% if filters.get('fluxo') == 'entrada' %}selected{% endif %}>Entradas</option>
+            </select>
+        </label>
+        <label>
+            <span>Status</span>
+            <select name="status">
+                <option value="">Todos</option>
+                {% for option in outgoing_statuses + incoming_statuses %}
+                    <option value="{{ option }}" {% if filters.get('status') == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Início</span>
+            <input type="date" name="inicio" value="{{ filters.get('inicio', '') }}">
+        </label>
+        <label>
+            <span>Fim</span>
+            <input type="date" name="fim" value="{{ filters.get('fim', '') }}">
+        </label>
+        <button class="button primary" type="submit">Filtrar</button>
+        <a class="button ghost" href="{{ url_for('office_documents') }}">Limpar</a>
+    </form>
+</section>
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Fluxo</th>
+                <th>Número</th>
+                <th>Assunto</th>
+                <th>Destino/Origem</th>
+                <th>Responsável</th>
+                <th>Data</th>
+                <th>Status</th>
+                <th class="actions-col">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data.rows %}
+                <tr>
+                    <td>
+                        <span class="badge neutral">{{ "Saída" if row.fluxo == "saida" else "Entrada" }}</span>
+                    </td>
+                    <td>
+                        <strong>{{ row.numero_formatado or row.numero_original or "Sem número" }}</strong>
+                        {% if row.nome_padrao %}<small>{{ row.nome_padrao }}</small>{% endif %}
+                    </td>
+                    <td>
+                        {{ row.assunto or "Sem assunto" }}
+                        <small>{{ row.tipo_documento }}</small>
+                        {% if row.tramitacao_especial %}<small>Tramitação especial: {{ row.tramitacao_especial }}</small>{% endif %}
+                    </td>
+                    <td>{{ row.destinatario_orgao or row.orgao_origem or "" }}</td>
+                    <td>{{ row.responsavel_nome or row.emissor_nome or row.usuario_nome or "Sistema" }}</td>
+                    <td>{{ format_date(row.data_emissao or row.data_recebimento or row.criado_em) }}</td>
+                    <td><span class="badge {{ row.status|status_class }}">{{ row.status }}</span></td>
+                    <td class="row-actions">
+                        {% if row.fluxo == "saida" and has_permission('expedientes', 'edit') %}
+                            <a class="button small" href="{{ url_for('office_outgoing_edit', document_id=row.id) }}">Editar</a>
+                        {% elif row.fluxo == "entrada" and has_permission('expedientes', 'edit') %}
+                            <a class="button small" href="{{ url_for('office_incoming_edit', document_id=row.id) }}">Editar</a>
+                        {% endif %}
+                        {% if has_permission('expedientes', 'delete') and row.status not in ['Cancelado', 'Arquivado'] %}
+                            <form method="post" action="{{ url_for('office_cancel_document', document_id=row.id) }}" data-confirm="Atualizar o status deste documento?">
+                                <button class="button small danger" type="submit">{{ "Cancelar" if row.fluxo == "saida" else "Arquivar" }}</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8" class="empty">Nenhum documento encontrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
