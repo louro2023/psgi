@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import mimetypes
 import os
 import secrets
@@ -930,6 +931,7 @@ ENTITY_CONFIGS: dict[str, dict[str, Any]] = {
             ("data_abertura", "Abertura"),
             ("status", "Status"),
         ],
+        "page_size": 30,
         "fields": [
             {"name": "numero", "label": "Número do incidente", "type": "text", "required": True},
             {"name": "titulo", "label": "Título", "type": "text", "required": True},
@@ -1663,6 +1665,13 @@ def is_nav_active(item: dict[str, Any]) -> bool:
     return all(request.view_args and request.view_args.get(key) == value for key, value in params.items()) if params else True
 
 
+@app.template_global("pagination_url")
+def pagination_url(entity: str, page: int, filters: Any) -> str:
+    args = {k: v for k, v in filters.items() if k != "page"}
+    args["page"] = page
+    return url_for("entity_list", entity=entity, **args)
+
+
 @app.template_filter("status_class")
 def status_class(value: Any) -> str:
     normalized = str(value or "").lower()
@@ -1825,7 +1834,7 @@ def prepare_rows(rows: list[sqlite3.Row], columns: list[tuple[str, str]]) -> lis
     return prepared
 
 
-def query_entity_list(entity: str) -> list[sqlite3.Row]:
+def query_entity_list(entity: str) -> tuple[list[sqlite3.Row], int, int]:
     config = ENTITY_CONFIGS[entity]
     sql = config["list_query"]
     params: list[Any] = []
@@ -1841,7 +1850,16 @@ def query_entity_list(entity: str) -> list[sqlite3.Row]:
             sql += f" AND {column} = ?"
             params.append(value)
     sql += f" ORDER BY {config['id_column']} DESC"
-    return get_db().execute(sql, params).fetchall()
+    page_size = config.get("page_size")
+    if page_size:
+        count_sql = f"SELECT COUNT(*) FROM ({sql}) _c"
+        total = get_db().execute(count_sql, params).fetchone()[0]
+        page = max(1, int(request.args.get("page", 1)))
+        offset = (page - 1) * page_size
+        rows = get_db().execute(sql + " LIMIT ? OFFSET ?", params + [page_size, offset]).fetchall()
+        return rows, total, page
+    rows = get_db().execute(sql, params).fetchall()
+    return rows, len(rows), 1
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -2914,7 +2932,9 @@ def entity_list(entity: str):
     config = ENTITY_CONFIGS[entity]
     if not has_permission(config["module"], "view"):
         abort(403)
-    rows = query_entity_list(entity)
+    rows, total, page = query_entity_list(entity)
+    page_size = config.get("page_size")
+    total_pages = math.ceil(total / page_size) if page_size else 1
     return render_template(
         "entity_list.html",
         entity=entity,
@@ -2924,6 +2944,10 @@ def entity_list(entity: str):
         people=get_choice_options("pessoas"),
         profiles=get_choice_options("perfis"),
         control_area=control_area_for_entity(entity),
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        page_size=page_size,
     )
 
 
