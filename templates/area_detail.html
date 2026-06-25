@@ -10,6 +10,7 @@
     "riscos": "Riscos",
     "acoes": "Plano de ação",
     "evidencias": "Evidências",
+    "manuais_normas": "Manuais e normas",
     "indicadores": "Indicadores",
     "historico": "Histórico"
 } %}
@@ -365,6 +366,110 @@
 </section>
 {% endif %}
 
+{% if active_tab == "manuais_normas" and area.key == "incidentes" %}
+<section class="split-grid wide-left">
+    {% if has_permission('arquivos', 'create') %}
+        <form method="post" action="{{ url_for('documents') }}" enctype="multipart/form-data" class="panel form-panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Lançar manual ou norma</h2>
+                    <span>Cadastre documentos oficiais de orientação, procedimento e referência para resposta a incidentes.</span>
+                </div>
+            </div>
+            <input type="hidden" name="eixo" value="{{ area.title }}">
+            <input type="hidden" name="next" value="{{ url_for('security_area_detail', key=area.key, tab='manuais_normas') }}">
+            <div class="form-grid">
+                <label>
+                    <span>Tipo do documento<em>*</em></span>
+                    <select name="tipo_documento_normativo" required>
+                        <option value="Manual">Manual</option>
+                        <option value="Norma">Norma</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Classificação<em>*</em></span>
+                    <select name="classificacao" required>
+                        <option>Interna</option>
+                        <option>Pública</option>
+                        <option>Restrita</option>
+                        <option>Confidencial</option>
+                        <option>Sensível</option>
+                    </select>
+                </label>
+                <label class="span-2"><span>Arquivo<em>*</em></span><input type="file" name="arquivo" required></label>
+                <label class="span-2"><span>Resumo, versão ou referência</span><textarea name="descricao" rows="3" placeholder="Ex.: POP de triagem, versão 1.2, aprovado pelo Comitê de Segurança."></textarea></label>
+                <label class="span-2">
+                    <span>Incidente relacionado</span>
+                    <select name="incidente_id">
+                        <option value="">Não vincular</option>
+                        {% for value, label in data.choices.incidentes %}
+                            <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div class="form-actions"><button class="button primary" type="submit">Lançar documento</button></div>
+        </form>
+    {% else %}
+        <div class="panel">
+            <div class="panel-header"><h2>Manuais e normas</h2></div>
+            <p class="muted">Seu perfil pode consultar os documentos cadastrados, mas não possui permissão para lançar novos arquivos.</p>
+        </div>
+    {% endif %}
+    <div class="panel">
+        <div class="panel-header"><h2>Referências esperadas</h2></div>
+        <div class="objective-list inventory-guidance">
+            <div>Manual de resposta e comunicação de incidentes</div>
+            <div>Norma de classificação e priorização de incidentes</div>
+            <div>Procedimento de contenção, erradicação e recuperação</div>
+            <div>Modelo de relatório pós-incidente e lições aprendidas</div>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Documentos lançados</h2>
+            <span>Manuais e normas referentes à Gestão de Incidentes de Segurança da Informação.</span>
+        </div>
+    </div>
+    <div class="table-wrap embedded">
+        <table>
+            <thead>
+                <tr>
+                    <th>Documento</th>
+                    <th>Classificação</th>
+                    <th>Enviado por</th>
+                    <th>Data</th>
+                    <th class="actions-col">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for file in data.normative_documents %}
+                    <tr>
+                        <td>
+                            <strong>{{ file.nome_original }}</strong>
+                            <small>{{ file.descricao or "Documento normativo de incidentes" }}</small>
+                        </td>
+                        <td><span class="badge {{ file.classificacao|status_class }}">{{ file.classificacao }}</span></td>
+                        <td>{{ file.usuario_nome or "Sistema" }}</td>
+                        <td>{{ format_date(file.criado_em) }}</td>
+                        <td class="row-actions">
+                            <a class="button small" href="{{ url_for('file_detail', file_id=file.id) }}">Detalhes</a>
+                            <a class="button small ghost" href="{{ url_for('file_view', file_id=file.id) }}" target="_blank">Visualizar</a>
+                            <a class="button small ghost" href="{{ url_for('file_download', file_id=file.id) }}">Baixar</a>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="empty">Nenhum manual ou norma lançado para incidentes.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
 {% if active_tab == "indicadores" %}
 <section class="metric-grid compact">
     <article class="metric neutral"><span>Total de controles</span><strong>{{ data.metrics.controls }}</strong><small>Base de abrangência</small></article>
@@ -387,6 +492,115 @@
         <div><strong>Pontos de atenção</strong><span>Controles vencidos + riscos altos sem plano + ações vencidas + controles sem evidência.</span></div>
     </div>
 </section>
+
+<section class="split-grid indicator-charts">
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Volume dos registros</h2>
+                <span>Controles, riscos, ações e evidências vinculados ao eixo.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="area_volume"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Controles e evidências</h2>
+                <span>Implementação, pendências de evidência e prazos vencidos.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="area_controls"></canvas>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Tratamento dos riscos</h2>
+                <span>Prioridade gerencial por risco alto e plano de tratamento.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="pie" data-source="area_risks"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Execução das ações</h2>
+                <span>Ações em prazo, vencidas e concluídas.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="pie" data-source="area_actions"></canvas>
+    </div>
+</section>
+
+{% if area.key == "incidentes" %}
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Incidentes por mês</h2>
+                <span>Evolução mensal dos registros de incidentes.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="line" data-source="incident_months"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Status dos incidentes</h2>
+                <span>Distribuição entre abertos, em andamento, contidos e encerrados.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="pie" data-source="incident_status"></canvas>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Gravidade dos incidentes</h2>
+                <span>Quantidade por nível de gravidade informado.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="incident_severity"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Tipos recorrentes</h2>
+                <span>Principais categorias de incidentes registradas.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="incident_types"></canvas>
+    </div>
+</section>
+
+<section class="split-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Tempo médio de fechamento</h2>
+                <span>Dias médios entre abertura e encerramento por gravidade.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="incident_resolution_time"></canvas>
+    </div>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Áreas afetadas</h2>
+                <span>Setores com maior volume de incidentes registrados.</span>
+            </div>
+        </div>
+        <canvas class="chart-canvas" data-chart="bar" data-source="incident_areas"></canvas>
+    </div>
+</section>
+{% endif %}
+
+<script id="chart-data" type="application/json">{{ data.charts|tojson }}</script>
 {% endif %}
 
 {% if active_tab == "historico" %}

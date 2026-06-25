@@ -2049,6 +2049,8 @@ def security_area_detail(key: str):
     tabs = ["visao", "alimentacao", "controles", "riscos", "acoes", "evidencias", "indicadores", "historico"]
     if area["key"] == "ativos":
         tabs.insert(2, "inventario")
+    if area["key"] == "incidentes":
+        tabs.insert(tabs.index("indicadores"), "manuais_normas")
     active_tab = request.args.get("tab", "visao")
     if active_tab not in tabs:
         active_tab = "visao"
@@ -2267,6 +2269,123 @@ def area_clause(fields: list[str], area: dict[str, Any]) -> tuple[str, list[Any]
 def scalar(sql: str, params: list[Any] | tuple[Any, ...] = ()) -> int:
     row = get_db().execute(sql, params).fetchone()
     return int(row["total"] if row else 0)
+
+
+def chart_items(rows: list[sqlite3.Row], label_key: str = "label", value_key: str = "total") -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        value = row[value_key] or 0
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        items.append({"label": row[label_key] or "Sem informação", "value": value})
+    return items
+
+
+def security_area_charts(area: dict[str, Any], metrics: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    db = get_db()
+    high_risks_with_plan = max(metrics["high_risks"] - metrics["high_risks_without_plan"], 0)
+    other_risks = max(metrics["risks"] - metrics["high_risks"], 0)
+    open_actions_on_time = max(metrics["open_actions"] - metrics["overdue_actions"], 0)
+    charts: dict[str, list[dict[str, Any]]] = {
+        "area_volume": [
+            {"label": "Controles", "value": metrics["controls"]},
+            {"label": "Riscos", "value": metrics["risks"]},
+            {"label": "Ações", "value": metrics["actions"]},
+            {"label": "Evidências", "value": metrics["evidences"]},
+        ],
+        "area_controls": [
+            {"label": "Implementados", "value": metrics["implemented_controls"]},
+            {"label": "Sem evidência", "value": metrics["controls_without_evidence"]},
+            {"label": "Vencidos", "value": metrics["overdue_controls"]},
+        ],
+        "area_risks": [
+            {"label": "Altos sem plano", "value": metrics["high_risks_without_plan"]},
+            {"label": "Altos com plano", "value": high_risks_with_plan},
+            {"label": "Demais riscos", "value": other_risks},
+        ],
+        "area_actions": [
+            {"label": "Em prazo", "value": open_actions_on_time},
+            {"label": "Vencidas", "value": metrics["overdue_actions"]},
+            {"label": "Concluídas", "value": metrics["completed_actions"]},
+        ],
+    }
+    if area["key"] == "incidentes":
+        charts.update(
+            {
+                "incident_months": chart_items(
+                    db.execute(
+                        """
+                        SELECT substr(data_abertura, 1, 7) AS label, COUNT(*) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                        GROUP BY substr(data_abertura, 1, 7)
+                        ORDER BY label
+                        """
+                    ).fetchall()
+                ),
+                "incident_status": chart_items(
+                    db.execute(
+                        """
+                        SELECT COALESCE(NULLIF(status, ''), 'Sem status') AS label, COUNT(*) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                        GROUP BY label
+                        ORDER BY total DESC, label
+                        """
+                    ).fetchall()
+                ),
+                "incident_severity": chart_items(
+                    db.execute(
+                        """
+                        SELECT COALESCE(NULLIF(gravidade, ''), 'Sem gravidade') AS label, COUNT(*) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                        GROUP BY label
+                        ORDER BY total DESC, label
+                        """
+                    ).fetchall()
+                ),
+                "incident_types": chart_items(
+                    db.execute(
+                        """
+                        SELECT COALESCE(NULLIF(tipo, ''), 'Sem tipo') AS label, COUNT(*) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                        GROUP BY label
+                        ORDER BY total DESC, label
+                        LIMIT 8
+                        """
+                    ).fetchall()
+                ),
+                "incident_resolution_time": chart_items(
+                    db.execute(
+                        """
+                        SELECT COALESCE(NULLIF(gravidade, ''), 'Sem gravidade') AS label,
+                               ROUND(AVG(julianday(data_encerramento) - julianday(data_abertura)), 1) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                          AND data_abertura IS NOT NULL
+                          AND data_encerramento IS NOT NULL
+                        GROUP BY label
+                        ORDER BY total DESC, label
+                        """
+                    ).fetchall()
+                ),
+                "incident_areas": chart_items(
+                    db.execute(
+                        """
+                        SELECT COALESCE(NULLIF(area_afetada, ''), 'Sem área') AS label, COUNT(*) AS total
+                        FROM incidentes
+                        WHERE ativo = 1
+                        GROUP BY label
+                        ORDER BY total DESC, label
+                        LIMIT 8
+                        """
+                    ).fetchall()
+                ),
+            }
+        )
+    return charts
 
 
 def ensure_security_area_controls(db: sqlite3.Connection, pessoa_ids: list[int]) -> None:
@@ -2561,6 +2680,25 @@ def security_area_detail_data(area: dict[str, Any]) -> dict[str, Any]:
         """,
         file_params,
     ).fetchall()
+    normative_documents = []
+    if area["key"] == "incidentes":
+        normative_rows = db.execute(
+            """
+            SELECT a.id, a.nome_original, a.classificacao, a.descricao, a.eixo, a.criado_em,
+                   a.tipo, a.tamanho, a.usuario_upload_id, u.nome AS usuario_nome
+            FROM arquivos a
+            LEFT JOIN usuarios u ON u.id = a.usuario_upload_id
+            WHERE a.ativo = 1
+              AND a.eixo = ?
+              AND (
+                  a.descricao LIKE 'Manual de incidentes%'
+                  OR a.descricao LIKE 'Norma de incidentes%'
+              )
+            ORDER BY a.criado_em DESC, a.id DESC
+            """,
+            (area["title"],),
+        ).fetchall()
+        normative_documents = [row for row in normative_rows if can_access_file(row, "view")]
     inventory = asset_inventory_rows() if area["key"] == "ativos" else []
     inventory_metrics = asset_inventory_metrics() if area["key"] == "ativos" else {"total": 0, "critical": 0, "without_owner": 0, "review_due": 0, "maintenance": 0}
     metrics = security_area_metrics(area)
@@ -2579,8 +2717,10 @@ def security_area_detail_data(area: dict[str, Any]) -> dict[str, Any]:
         "risks": risks,
         "actions": actions,
         "evidences": evidences,
+        "normative_documents": normative_documents,
         "inventory": inventory,
         "inventory_metrics": inventory_metrics,
+        "charts": security_area_charts(area, metrics),
         "asset_options": {
             "types": ASSET_TYPES,
             "criticalities": ASSET_CRITICALITIES,
@@ -2591,6 +2731,7 @@ def security_area_detail_data(area: dict[str, Any]) -> dict[str, Any]:
             "controles": [(str(row["id"]), row["titulo"]) for row in controls],
             "riscos": [(str(row["id"]), row["titulo"]) for row in risks],
             "acoes": [(str(row["id"]), row["titulo"]) for row in actions],
+            "incidentes": get_choice_options("incidentes"),
         },
         "history": history,
     }
@@ -3717,6 +3858,10 @@ def documents():
         upload.save(path)
         mime = mimetypes.guess_type(original)[0] or "application/octet-stream"
         classification = request.form.get("classificacao", "Interno")
+        description = request.form.get("descricao", "").strip()
+        normative_type = request.form.get("tipo_documento_normativo", "").strip()
+        if normative_type in {"Manual", "Norma"}:
+            description = f"{normative_type} de incidentes" + (f" | {description}" if description else "")
         cursor = get_db().execute(
             """
             INSERT INTO arquivos
@@ -3731,7 +3876,7 @@ def documents():
                 saved,
                 path.stat().st_size,
                 classification,
-                request.form.get("descricao", "").strip() or None,
+                description or None,
                 request.form.get("eixo") or None,
                 g.user["id"],
                 request.form.get("controle_id") or None,

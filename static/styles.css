@@ -962,6 +962,10 @@ label em {
     display: block;
 }
 
+.indicator-charts {
+    margin-top: 14px;
+}
+
 .stack-list,
 .timeline {
     display: grid;
